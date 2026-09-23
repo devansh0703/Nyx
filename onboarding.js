@@ -2,13 +2,13 @@
 /**
  * Onboarding wizard controller.
  *
- * Drives the 4-step flow rendered in onboarding.html and persists
+ * Drives the 3-step flow rendered in onboarding.html and persists
  * everything via the electronAPI bridge exposed by preload.js:
  *
  *   1. Welcome
- *   2. NVIDIA NIM API key entry + live connection test (chat backend)
- *   3. Gemini API key entry + live test (text/vision/audio: transcription)
- *   4. Star-the-repo prompt + summary
+ *   2. Gemini API key entry + live connection test (the AI backend:
+ *      chat, vision, and voice transcription)
+ *   3. Star-the-repo prompt + summary
  */
 
 (function () {
@@ -28,15 +28,13 @@
   // ── State ─────────────────────────────────────────────────────────
   const state = {
     step: 0,
-    nvidiaKey: '',
-    nvidiaConfigured: false, // a key already exists in .env/bashrc from a prior run
     geminiKey: '',
     geminiConfigured: false,
     finished: false,
   };
 
-  // Screens are: welcome → nvidia key → gemini key → finish
-  const stepScreens = ['welcome', 'apikey', 'geminiskey', 'finish'];
+  // Screens are: welcome → gemini key → finish
+  const stepScreens = ['welcome', 'geminiskey', 'finish'];
 
   // ── Step rendering ────────────────────────────────────────────────
   function totalSteps() {
@@ -95,12 +93,9 @@
     switch (name) {
       case 'welcome':
         return true;
-      case 'apikey':
-        // A key already in .env/bashrc is enough — don't force a re-entry.
-        return !!state.nvidiaKey.trim() || state.nvidiaConfigured;
       case 'geminiskey':
-        // Gemini is required: it powers text/vision alt-provider AND all
-        // voice transcription. A key already in .env/bashrc counts.
+        // Gemini is required: it powers chat, vision, AND voice
+        // transcription. A key already in .env/bashrc counts.
         return !!state.geminiKey.trim() || state.geminiConfigured;
       case 'finish':
         return true;
@@ -109,10 +104,10 @@
     }
   }
 
-  // ── Wire up: NVIDIA API key ───────────────────────────────────────
-  const apiKeyInput = $('#nvidiaKey');
-  const toggleVis = $('#toggleVis');
-  const keyStatus = $('#keyStatus');
+  // ── Wire up: Gemini API key ───────────────────────────────────────
+  const geminiKeyInput = $('#geminiKey');
+  const geminiToggleVis = $('#geminiToggleVis');
+  const geminiStatus = $('#geminiStatus');
 
   function makeStatusSetter(pillEl) {
     return function set(state_, text) {
@@ -133,31 +128,6 @@
     };
   }
 
-  const setKeyStatus = makeStatusSetter(keyStatus);
-
-  apiKeyInput.addEventListener('input', () => {
-    state.nvidiaKey = apiKeyInput.value.trim();
-    if (!state.nvidiaKey) {
-      keyStatus.style.display = 'none';
-    } else if (keyStatus.classList.contains('success')) {
-      // Keep success state — they had a valid key, may be editing
-    } else {
-      setKeyStatus('idle', 'Key entered');
-    }
-  });
-
-  toggleVis.addEventListener('click', () => {
-    const showing = apiKeyInput.type === 'text';
-    apiKeyInput.type = showing ? 'password' : 'text';
-    toggleVis.innerHTML = showing
-      ? '<i class="fas fa-eye"></i>'
-      : '<i class="fas fa-eye-slash"></i>';
-  });
-
-  // ── Wire up: Gemini API key ───────────────────────────────────────
-  const geminiKeyInput = $('#geminiKey');
-  const geminiToggleVis = $('#geminiToggleVis');
-  const geminiStatus = $('#geminiStatus');
   const setGeminiStatus = makeStatusSetter(geminiStatus);
 
   geminiKeyInput.addEventListener('input', () => {
@@ -182,12 +152,6 @@
   // ── Wire up: Finish screen ────────────────────────────────────────
   function populateSummary() {
     const rows = [];
-    const nvidiaOk = !!(state.nvidiaKey || state.nvidiaConfigured);
-    rows.push({
-      label: '<i class="fas fa-key"></i> NVIDIA NIM API',
-      value: nvidiaOk ? 'Configured' : 'Missing',
-      cls: nvidiaOk ? 'ok' : 'skip',
-    });
     const geminiOk = !!(state.geminiKey || state.geminiConfigured);
     rows.push({
       label: '<i class="fas fa-key"></i> Google Gemini API',
@@ -234,18 +198,12 @@
     const name = currentScreenName();
     if (!canAdvance()) {
       // Lightly nudge the user
-      if (name === 'apikey') setKeyStatus('error', 'Enter an NVIDIA API key');
       if (name === 'geminiskey') setGeminiStatus('error', 'Enter a Gemini API key');
       return;
     }
 
     // Persist keys as they're confirmed so nothing is lost if the
     // wizard is closed partway.
-    if (name === 'apikey' && state.nvidiaKey && window.electronAPI) {
-      try {
-        await window.electronAPI.saveSettings({ nvidiaKey: state.nvidiaKey });
-      } catch (_) { /* surfaced elsewhere */ }
-    }
     if (name === 'geminiskey' && state.geminiKey && window.electronAPI) {
       try {
         await window.electronAPI.saveSettings({ geminiKey: state.geminiKey });
@@ -292,11 +250,6 @@
   if (window.electronAPI && window.electronAPI.getFirstRunStatus) {
     window.electronAPI.getFirstRunStatus().then((s) => {
       if (!s) return;
-      if (s.nvidiaConfigured) {
-        state.nvidiaConfigured = true;
-        setKeyStatus('success', 'Already configured — click Continue');
-        apiKeyInput.placeholder = '•••••••••••••••• (already set)';
-      }
       if (s.geminiConfigured) {
         state.geminiConfigured = true;
         setGeminiStatus('success', 'Already configured — click Continue');

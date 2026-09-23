@@ -39,26 +39,8 @@ class ConfigManager {
       },
 
       llm: {
-        // Active provider: 'nvidia' (default) or 'gemini'. Override with LLM_PROVIDER.
-        // Both are multimodal (text + image) chat backends.
-        provider: process.env.LLM_PROVIDER === 'gemini' ? 'gemini' : 'nvidia',
-
-        // NVIDIA NIM (build.nvidia.com) — OpenAI-compatible chat completions.
-        // Auth uses NVIDIA_API_KEY which the user exports in ~/.bashrc.
-        nvidia: {
-          model: 'meta/llama-3.2-11b-vision-instruct',
-          fallbackModels: [],
-          maxRetries: 3,
-          timeout: 90000, // NIM models can stream slowly; give them room
-          fallbackEnabled: true,
-          generation: {
-            temperature: 0.7,
-            topP: 0.9,
-            maxOutputTokens: 4096
-          }
-        },
-
-        // Google Gemini (generativelanguage.googleapis.com v1beta).
+        // Google Gemini (generativelanguage.googleapis.com v1beta) is the LLM —
+        // chat, vision, and audio transcription all run on it.
         // Auth uses GEMINI_API_KEY (free tier ≈ 15 RPM on flash-lite).
         // 'gemini-2.5-flash-lite' is no longer served to new keys; the API
         // directs new users to 3.5 flash-lite. Override with GEMINI_MODEL.

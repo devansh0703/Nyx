@@ -47,7 +47,7 @@ function formatEnvValue(raw) {
 
 // ── Linux GPU process crash workaround ──
 // On many Linux setups (Wayland, X11 without GPU drivers, Docker, headless,
-// or systems with broken Mesa/NVIDIA stacks), Chromium's GPU process crashes
+// or systems with broken Mesa/GPU stacks), Chromium's GPU process crashes
 // on startup with:
 //   FATAL:gpu_data_manager_impl_private.cc(448)] GPU process isn't usable.
 // This kills the entire app and can leave orphan helper processes that
@@ -1242,7 +1242,7 @@ class ApplicationController {
       return { success: true };
     });
 
-    // NVIDIA NIM key management (renamed from Gemini, legacy names preserved)
+    // Gemini key management
     ipcMain.handle("set-llm-api-key", (event, apiKey) => {
       llmService.updateApiKey(apiKey);
       return llmService.getStats();
@@ -1250,15 +1250,6 @@ class ApplicationController {
 
     ipcMain.handle("get-llm-status", () => {
       return llmService.getStats();
-    });
-
-    // Switch the active LLM backend at runtime ('nvidia' | 'gemini').
-    ipcMain.handle("set-llm-provider", (event, provider) => {
-      try {
-        return { success: true, stats: llmService.setProvider(provider) };
-      } catch (e) {
-        return { success: false, error: e.message };
-      }
     });
 
     ipcMain.handle("test-llm-connection", async () => {
@@ -2214,15 +2205,9 @@ class ApplicationController {
       windowGap: windowManager.windowGap,
 
       geminiKey: process.env.GEMINI_API_KEY || "",
-      // Both AI providers ship; LLM_PROVIDER (env/.env) selects the active one.
-      // Transcription always runs on Gemini audio (NVIDIA NIM has no audio input).
-      nvidiaKey: process.env.NVIDIA_API_KEY || "",
-      nvidiaConfigured: !!process.env.NVIDIA_API_KEY,
+      // Gemini is the AI backend (chat, vision, and audio transcription).
       geminiConfigured: !!process.env.GEMINI_API_KEY,
-      llmProvider: config.get("llm.provider") || "nvidia",
-      llmModel: config.get("llm.provider") === "gemini"
-        ? config.get("llm.gemini.model")
-        : config.get("llm.nvidia.model"),
+      llmModel: config.get("llm.gemini.model"),
       outputLanguage: process.env.OUTPUT_LANGUAGE || "English",
       meetingAudioLanguage: process.env.MEETING_AUDIO_LANGUAGE || "auto",
 
@@ -2262,12 +2247,6 @@ class ApplicationController {
       if (settings.geminiKey !== undefined) {
         envUpdates.GEMINI_API_KEY = settings.geminiKey;
       }
-      if (settings.nvidiaKey !== undefined && String(settings.nvidiaKey).trim() !== '') {
-        envUpdates.NVIDIA_API_KEY = settings.nvidiaKey;
-      }
-      if (settings.llmProvider === "nvidia" || settings.llmProvider === "gemini") {
-        envUpdates.LLM_PROVIDER = settings.llmProvider;
-      }
       if (settings.outputLanguage !== undefined) {
         envUpdates.OUTPUT_LANGUAGE = String(settings.outputLanguage);
       }
@@ -2277,12 +2256,10 @@ class ApplicationController {
 
       const persistedKeys = this.persistEnvUpdates(envUpdates);
 
-      // Reinitialize the LLM service when a key OR provider changes so the
+      // Reinitialize the LLM service when the key changes so the
       // change takes effect immediately (onboarding + settings flows).
       const keyOrProviderChanged =
-        (settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined) ||
-        (settings.nvidiaKey !== undefined && envUpdates.NVIDIA_API_KEY !== undefined) ||
-        (settings.llmProvider !== undefined && envUpdates.LLM_PROVIDER !== undefined);
+        settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined;
       if (keyOrProviderChanged) {
         try {
           llmService.initializeClient();

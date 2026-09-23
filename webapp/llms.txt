@@ -7,7 +7,7 @@
 
 Nyx is a free, open-source Electron desktop app that places a small
 overlay on your screen that recording and conferencing tools do not capture.
-You can speak a question or take a screenshot, and the AI (powered by NVIDIA
+You can speak a question or take a screenshot, and the AI (powered by Google Gemini
 NIM or Google Gemini) answers in real time. The answer streams into a floating
 window and an optional chat panel with clean code blocks and syntax highlighting.
 
@@ -29,20 +29,20 @@ a strict BYOK model so the user keeps control of their API key and their data.
 - **Website:** https://nyx.devansh0703.dev/
 - **Author:** devansh0703 (https://github.com/devansh0703)
 - **Platforms:** Windows (NSIS .exe installer), Linux (.deb, .AppImage), macOS (run from source via ./setup.sh)
-- **Tech stack:** Electron, NVIDIA NIM API + Google Gemini API, PrismJS, WDA_EXCLUDEFROMCAPTURE / SetWindowDisplayAffinity (Windows), NSWindowSharingNone (macOS)
-- **Pricing:** Free, open source, Apache 2.0 licensed. Only the user's own NVIDIA NIM API usage costs (which has a generous free tier). No subscription, no account, no proxy.
+- **Tech stack:** Electron, Google Gemini API, PrismJS, WDA_EXCLUDEFROMCAPTURE / SetWindowDisplayAffinity (Windows), NSWindowSharingNone (macOS)
+- **Pricing:** Free, open source, Apache 2.0 licensed. Only the user's own Gemini API usage costs (which has a generous free tier). No subscription, no account, no proxy.
 - **Privacy:** No telemetry, no analytics, no data collection. Processing happens locally. Only the requests the user sends to the AI provider leave the device, encrypted in transit.
 
 ## Key features
 
 1. **Invisible overlay** - Windows excluded from Zoom, Google Meet, Microsoft Teams, Discord, and OBS screen captures using OS-level capture-exclusion APIs.
 2. **Voice input** - Gemini audio transcription (with voice-activity detection on natural pauses).
-3. **Screenshot analysis** - Direct NVIDIA NIM visual reasoning, no intermediate OCR step. Works with HackerRank, LeetCode, CodeSignal, CoderPad, editors, slides, PDFs.
+3. **Screenshot analysis** - Direct Gemini visual reasoning, no intermediate OCR step. Works with HackerRank, LeetCode, CodeSignal, CoderPad, editors, slides, PDFs.
 4. **Streamed answers** - Real-time streaming with markdown rendering and syntax-highlighted code blocks.
 5. **Session memory** - Full conversation context maintained for follow-ups, edge cases, and optimizations.
 6. **Stealth design** - Runs under ordinary system process names, ships with no telemetry, no data collection.
 7. **Cross platform** - Windows .exe installer, Linux .deb and AppImage, macOS from source.
-8. **BYOK (bring your own key)** - User-supplied NVIDIA NIM API key. No Nyx-side account, no proxy, no usage-based billing.
+8. **BYOK (bring your own key)** - User-supplied Gemini API key. No Nyx-side account, no proxy, no usage-based billing.
 9. **Customizable shortcuts** - Every keyboard shortcut is rebindable from the Settings window.
 
 ## Use cases
@@ -50,7 +50,7 @@ a strict BYOK model so the user keeps control of their API key and their data.
 - Real-time AI assistance during coding interviews (DSA, system design, language-specific questions).
 - Live technical Q&A during remote interviews on Zoom, Google Meet, Microsoft Teams, Discord, or OBS.
 - Private practice mode where the overlay floats above the editor and answers stream in word by word.
-- Learning a new programming language by asking NVIDIA NIM from inside the overlay.
+- Learning a new programming language by asking Gemini from inside the overlay.
 - Free, Apache-2.0-licensed alternative to paid Cluely / Natively / Interview Coder / FinalRound AI / LockedIn AI.
 
 ## Quick start
@@ -61,10 +61,9 @@ cd Nyx
 ./setup.sh
 ```
 
-On first launch the onboarding wizard asks for a free NVIDIA NIM API key
-(from https://build.nvidia.com/) and a free Gemini API key (from
-https://aistudio.google.com/apikey). Voice input runs on Gemini audio —
-nothing extra to install.
+On first launch the onboarding wizard asks for a free Gemini API key
+(from https://aistudio.google.com/apikey). Chat, vision, and voice input
+all run on Gemini — nothing extra to install.
 
 ## Keyboard shortcuts
 
@@ -79,12 +78,12 @@ nothing extra to install.
 
 ## FAQ
 
-- **Is Nyx a free Cluely alternative?** Yes - Apache 2.0 licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on NVIDIA NIM's free tier.
+- **Is Nyx a free Cluely alternative?** Yes - Apache 2.0 licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on Gemini's free tier.
 - **Is it really undetectable on Zoom, Meet, Teams, Discord, OBS?** Yes on Windows (WDA_EXCLUDEFROMCAPTURE) and macOS (NSWindowSharingNone). Linux lacks the API so the overlay is visible on that platform.
 - **How does it compare to Natively, Interview Coder, FinalRound AI, LockedIn AI?** Same category. Nyx is the free Apache-2.0-licensed option with no subscription, no account, no telemetry, and cross-platform support (Windows, macOS, Linux).
-- **Does it support BYOK?** Yes, BYOK is the only mode. Paste your own NVIDIA NIM key.
+- **Does it support BYOK?** Yes, BYOK is the only mode. Paste your own Gemini key.
 - **Does it work with HackerRank, LeetCode, CodeSignal?** Yes - screenshot capture works in any application.
-- **Do I need an API key?** Yes: a free NVIDIA NIM key (build.nvidia.com) and a free Gemini key (aistudio.google.com/apikey).
+- **Do I need an API key?** Yes: a free Gemini key (aistudio.google.com/apikey).
 - **Is voice input required?** No. Optional. Use screenshots and chat instead.
 - **Is my data collected?** No telemetry. Everything stays local except the AI requests you send.
 - **Is it free?** Yes, Apache 2.0 licensed.

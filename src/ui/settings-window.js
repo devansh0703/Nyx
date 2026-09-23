@@ -7,8 +7,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeButton = document.getElementById('closeButton');
     const quitButton = document.getElementById('quitButton');
     const geminiKeyInput = document.getElementById('geminiKey');
-    const nvidiaKeyInput = document.getElementById('nvidiaKey');
-    const llmProviderSelect = document.getElementById('llmProvider');
     const outputLanguageSelect = document.getElementById('outputLanguage');
     const meetingAudioLanguageSelect = document.getElementById('meetingAudioLanguage');
     const btnTestLlm = document.getElementById('btnTestLlm');
@@ -82,8 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Always set the input value, even if empty, so the user sees what's
         // currently configured (including env-derived defaults).
         if (geminiKeyInput) geminiKeyInput.value = settings.geminiKey || '';
-        if (nvidiaKeyInput) nvidiaKeyInput.value = settings.nvidiaKey || '';
-        if (llmProviderSelect) llmProviderSelect.value = settings.llmProvider || 'nvidia';
         if (outputLanguageSelect) outputLanguageSelect.value = settings.outputLanguage || 'English';
         if (meetingAudioLanguageSelect) meetingAudioLanguageSelect.value = settings.meetingAudioLanguage || 'auto';
         if (windowGapInput) windowGapInput.value = settings.windowGap || '';
@@ -153,8 +149,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveSettings = () => {
         const settings = {};
         if (geminiKeyInput) settings.geminiKey = geminiKeyInput.value;
-        if (nvidiaKeyInput) settings.nvidiaKey = nvidiaKeyInput.value;
-        if (llmProviderSelect) settings.llmProvider = llmProviderSelect.value;
         if (outputLanguageSelect) settings.outputLanguage = outputLanguageSelect.value;
         if (meetingAudioLanguageSelect) settings.meetingAudioLanguage = meetingAudioLanguageSelect.value;
         if (windowGapInput) settings.windowGap = windowGapInput.value;
@@ -171,8 +165,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add event listeners for all inputs
     const inputs = [
         geminiKeyInput,
-        nvidiaKeyInput,
-        llmProviderSelect,
         windowGapInput
     ];
 
@@ -309,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     renderShortcuts();
 
-    // NVIDIA NIM connection test
+    // Gemini connection test
     if (btnTestLlm) {
         btnTestLlm.addEventListener('click', async () => {
             btnTestLlm.disabled = true;
@@ -333,23 +325,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnTestLlm.disabled = false;
                 btnTestLlm.textContent = 'Test';
             }
-        });
-    }
-
-    if (llmProviderSelect) {
-        llmProviderSelect.addEventListener('change', async () => {
-            // Switch backend immediately (in-memory), then persist via saveSettings.
-            try {
-                if (window.electronAPI && window.electronAPI.setLlmProvider) {
-                    const res = await window.electronAPI.setLlmProvider(llmProviderSelect.value);
-                    if (res && res.success) {
-                        logger.info('LLM provider switched:', llmProviderSelect.value);
-                    }
-                }
-            } catch (e) {
-                console.error('Provider switch failed:', e);
-            }
-            saveSettings();
         });
     }
 

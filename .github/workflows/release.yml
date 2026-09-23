@@ -196,8 +196,8 @@ jobs:
 
           ## First Run
 
-          On first launch, Nyx opens the **onboarding wizard** for your **NVIDIA API key** (the AI backend is NVIDIA NIM — Llama 3.2 11B Vision, with text + screen vision) and your **Gemini API key** (alternate backend + voice transcription via gemini-2.5-flash-lite).
-          Get a free NVIDIA key from [build.nvidia.com](https://build.nvidia.com/) and a Gemini key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). You can also export `NVIDIA_API_KEY` / `GEMINI_API_KEY` in your shell or edit `.env` directly.
+          On first launch, Nyx opens the **onboarding wizard** for your **Gemini API key** — Gemini (gemini-3.5-flash-lite) is the AI backend for answers, screen vision, and voice transcription.
+          Get a free key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). You can also export `GEMINI_API_KEY` in your shell or edit `.env` directly.
 
           ## Voice Input
 

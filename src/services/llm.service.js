@@ -1,25 +1,12 @@
-// LLM Service — multi-provider router.
+// LLM Service — Gemini.
 //
-// Providers (config llm.provider / env LLM_PROVIDER):
-//   'nvidia' (default) — NVIDIA NIM, meta/llama-3.2-11b-vision-instruct
-//   'gemini'           — Google Gemini flash-lite (see gemini.service.js)
-//
-// NVIDIA path uses the OpenAI-compatible Chat Completions endpoint:
-//   POST https://integrate.api.nvidia.com/v1/chat/completions
-//   Authorization: Bearer $NVIDIA_API_KEY
-// Model: meta/llama-3.2-11b-vision-instruct (a vision-language model that also
-// handles text-only chat — see NVIDIA NIM VLM docs:
-// https://docs.nvidia.com/nim/vision-language-models/1.2.0/examples/llama3-2/api.html)
-//
-// Images are passed inline as base64 `image_url` parts, exactly per the NIM docs.
-// Streaming uses SSE ("stream": true) with `data:` line framing and [DONE] sentinel.
+// The LLM is Google Gemini flash-lite (see gemini.service.js). Every public
+// process* method funnels through chatCompletion(), which delegates to
+// geminiService. Key: GEMINI_API_KEY (env / bashrc / .env), model override
+// via GEMINI_MODEL.
 
-const https = require('https');
 const logger = require('../core/logger').createServiceLogger('LLM');
 const config = require('../core/config');
-
-const NIM_BASE_HOST = 'integrate.api.nvidia.com';
-const NIM_CHAT_PATH = '/v1/chat/completions';
 
 class LLMService {
   constructor() {
@@ -31,235 +18,38 @@ class LLMService {
   }
 
   get activeProvider() {
-    return config.get('llm.provider') === 'gemini' ? 'gemini' : 'nvidia';
-  }
-
-  /** Switch provider at runtime ('nvidia' | 'gemini'). Not persisted; LLM_PROVIDER persists. */
-  setProvider(provider) {
-    if (provider !== 'nvidia' && provider !== 'gemini') {
-      throw new Error(`Unknown LLM provider: ${provider}`);
-    }
-    config.set('llm.provider', provider);
-    this.initializeClient();
-    logger.info(`LLM provider switched to ${provider}`);
-    return this.getStats();
+    return 'gemini';
   }
 
   initializeClient() {
-    if (this.activeProvider === 'gemini') {
-      this.geminiService.initializeClient();
-      this.isInitialized = this.geminiService.isInitialized;
-      this.model = this.geminiService.model;
-      return;
-    }
+    this.geminiService.initializeClient();
+    this.isInitialized = this.geminiService.isInitialized;
+    this.model = this.geminiService.model;
 
-    const apiKey = config.getApiKey('NVIDIA');
-
-    if (!apiKey || apiKey === 'your-api-key-here' || apiKey === 'nvapi-xxx') {
-      logger.warn('NVIDIA API key not configured', {
-        keyExists: !!apiKey,
-        hint: 'Set NVIDIA_API_KEY in your environment (bashrc) or .env — or set LLM_PROVIDER=gemini with GEMINI_API_KEY',
+    if (this.isInitialized) {
+      logger.info('Gemini client initialized (llm.service)', {
+        model: this.model,
+        endpoint: this.geminiService.endpoint,
       });
-      this.isInitialized = false;
-      return;
+    } else {
+      logger.warn('Gemini API key not configured', {
+        keyExists: !!this.geminiService.getApiKey(),
+        hint: 'Set GEMINI_API_KEY in your environment (bashrc) or .env',
+      });
     }
-
-    this.model = config.get('llm.nvidia.model');
-    this.isInitialized = true;
-
-    logger.info('NVIDIA NIM client initialized', {
-      model: this.model,
-      endpoint: `https://${NIM_BASE_HOST}${NIM_CHAT_PATH}`,
-      keySource: process.env.NVIDIA_API_KEY_FROM_BASHRC ? 'bashrc-env' : 'env-file',
-    });
   }
 
   getApiKey() {
-    return this.activeProvider === 'gemini'
-      ? this.geminiService.getApiKey()
-      : config.getApiKey('NVIDIA');
-  }
-
-  getModelsToTry() {
-    const fallbackModels = config.get('llm.nvidia.fallbackModels') || [];
-    return [this.model, ...fallbackModels].filter(Boolean);
+    return this.geminiService.getApiKey();
   }
 
   /**
    * Core chat completion. `messages` is an OpenAI-style array:
    *   [{role:'system'|'user'|'assistant', content: string | [{type:'text',text}|{type:'image_url',image_url:{url}}]}]
-   * Returns the assistant message text. When `onDelta` is provided, streams via SSE.
+   * Returns the assistant message text. When `onDelta` is provided, streams.
    */
   async chatCompletion(messages, { temperature, maxTokens, onDelta } = {}) {
-    // Provider router — every public process* method funnels through here.
-    if (this.activeProvider === 'gemini') {
-      return this.geminiService.chatCompletion(messages, { temperature, maxTokens, onDelta });
-    }
-
-    const apiKey = this.getApiKey();
-    if (!apiKey) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
-    }
-
-    const generation = config.get('llm.nvidia.generation') || {};
-    const body = {
-      model: this.model,
-      messages,
-      temperature: temperature ?? generation.temperature ?? 0.7,
-      top_p: generation.topP ?? 0.9,
-      max_tokens: maxTokens ?? generation.maxOutputTokens ?? 4096,
-      stream: typeof onDelta === 'function',
-    };
-
-    const maxRetries = config.get('llm.nvidia.maxRetries') || 2;
-    const timeout = config.get('llm.nvidia.timeout') || 60000;
-
-    let lastError = null;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const text = typeof onDelta === 'function'
-          ? await this._streamRequest(body, apiKey, timeout, onDelta)
-          : await this._blockingRequest(body, apiKey, timeout);
-
-        if (!text || !text.trim()) {
-          throw new Error('Empty response from NVIDIA NIM');
-        }
-        return text.trim();
-      } catch (error) {
-        lastError = error;
-        const info = this.analyzeError(error);
-        logger.warn(`NVIDIA NIM attempt ${attempt} failed`, {
-          error: error.message,
-          errorType: info.type,
-          remainingAttempts: maxRetries - attempt,
-        });
-
-        // Auth errors are not retryable
-        if (info.type === 'AUTH_ERROR') throw error;
-        if (attempt < maxRetries) {
-          await this.delay((info.isNetworkError ? 2000 : 1200) * attempt + Math.random() * 500);
-        }
-      }
-    }
-
-    throw lastError || new Error('NVIDIA NIM request failed');
-  }
-
-  _requestOptions(postData, apiKey, timeout) {
-    return {
-      host: NIM_BASE_HOST,
-      path: NIM_CHAT_PATH,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: typeof arguments[3] !== 'undefined' ? 'text/event-stream' : 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Length': Buffer.byteLength(postData),
-        'User-Agent': this.getUserAgent(),
-      },
-      timeout,
-    };
-  }
-
-  _blockingRequest(body, apiKey, timeout) {
-    const postData = JSON.stringify(body);
-    const options = this._requestOptions(postData, apiKey, timeout);
-
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try {
-            if (res.statusCode !== 200) {
-              reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 400)}`));
-              return;
-            }
-            const json = JSON.parse(data);
-            const choice = json.choices && json.choices[0];
-            const text = choice && choice.message && choice.message.content;
-            if (typeof text !== 'string') {
-              reject(new Error(`Unexpected NIM response shape: ${data.substring(0, 200)}`));
-              return;
-            }
-            resolve(text);
-          } catch (parseError) {
-            reject(new Error(`Failed to parse NIM response: ${parseError.message}`));
-          }
-        });
-      });
-
-      req.on('error', (error) => reject(new Error(`NIM request failed: ${error.message}`)));
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('NIM request timeout'));
-      });
-      req.write(postData);
-      req.end();
-    });
-  }
-
-  _streamRequest(body, apiKey, timeout, onDelta) {
-    const postData = JSON.stringify(body);
-    const options = this._requestOptions(postData, apiKey, timeout, 'stream');
-    options.headers.Accept = 'text/event-stream';
-
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        if (res.statusCode !== 200) {
-          let errBody = '';
-          res.on('data', (c) => { errBody += c; });
-          res.on('end', () => reject(new Error(`HTTP ${res.statusCode}: ${errBody.substring(0, 400)}`)));
-          return;
-        }
-
-        let fullText = '';
-        let buffer = '';
-
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-          buffer += chunk;
-          let idx;
-          while ((idx = buffer.indexOf('\n')) !== -1) {
-            const line = buffer.slice(0, idx).trim();
-            buffer = buffer.slice(idx + 1);
-            if (!line.startsWith('data:')) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === '[DONE]') continue;
-            try {
-              const json = JSON.parse(payload);
-              const piece = json.choices?.[0]?.delta?.content || '';
-              if (piece) {
-                fullText += piece;
-                if (typeof onDelta === 'function') onDelta(piece);
-              }
-            } catch (_) {
-              // partial JSON across chunk boundaries; skip
-            }
-          }
-        });
-
-        res.on('end', () => resolve(fullText.trim()));
-        res.on('error', (error) => reject(new Error(`Streaming response error: ${error.message}`)));
-      });
-
-      req.on('error', (error) => reject(new Error(`Streaming request failed: ${error.message}`)));
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('Streaming request timeout'));
-      });
-      req.write(postData);
-      req.end();
-    });
-  }
-
-  getUserAgent() {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.userAgent) return navigator.userAgent;
-      return `Node.js/${process.version} (${process.platform}; ${process.arch})`;
-    } catch {
-      return 'Unknown';
-    }
+    return this.geminiService.chatCompletion(messages, { temperature, maxTokens, onDelta });
   }
 
   analyzeError(error) {
@@ -270,7 +60,7 @@ class LLMService {
     }
     if (m.includes('unauthorized') || m.includes('401') || m.includes('invalid api key') ||
         m.includes('forbidden') || m.includes('403')) {
-      return { type: 'AUTH_ERROR', isNetworkError: false, suggestedAction: 'Verify NVIDIA_API_KEY' };
+      return { type: 'AUTH_ERROR', isNetworkError: false, suggestedAction: 'Verify GEMINI_API_KEY' };
     }
     if (m.includes('429') || m.includes('quota') || m.includes('rate limit') || m.includes('too many requests')) {
       return { type: 'RATE_LIMIT_ERROR', isNetworkError: false, suggestedAction: 'Wait before retrying' };
@@ -280,7 +70,6 @@ class LLMService {
 
   async checkNetworkConnectivity() {
     const tests = [
-      { host: NIM_BASE_HOST, port: 443, name: 'NVIDIA NIM API Endpoint' },
       { host: 'generativelanguage.googleapis.com', port: 443, name: 'Google Gemini API Endpoint' },
       { host: 'google.com', port: 443, name: 'Google (HTTPS)' },
     ];
@@ -391,7 +180,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
     return prompt;
   }
 
-  // ── Public processing methods (same interface as before) ────────────────
+  // ── Public processing methods ───────────────────────────────────────────
 
   formatImageInstruction(activeSkill, programmingLanguage) {
     const langNote = programmingLanguage ? ` Use only ${programmingLanguage.toUpperCase()} for any code.` : '';
@@ -400,7 +189,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
 
   async processImageWithSkillStream(imageBuffer, mimeType, activeSkill, sessionMemory = [], programmingLanguage = null, onDelta = null) {
     if (!this.isInitialized) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
+      throw new Error('LLM service not initialized. Configure GEMINI_API_KEY.');
     }
     if (!imageBuffer || !Buffer.isBuffer(imageBuffer)) {
       throw new Error('Invalid image buffer provided to processImageWithSkillStream');
@@ -428,7 +217,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
         ? this.enforceProgrammingLanguage(fullText, programmingLanguage)
         : fullText;
 
-      logger.logPerformance('NIM image streaming', startTime, {
+      logger.logPerformance('Gemini image streaming', startTime, {
         activeSkill,
         imageSize: imageBuffer.length,
         responseLength: finalResponse.length,
@@ -460,7 +249,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
 
   async processImageWithSkill(imageBuffer, mimeType, activeSkill, sessionMemory = [], programmingLanguage = null) {
     if (!this.isInitialized) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
+      throw new Error('LLM service not initialized. Configure GEMINI_API_KEY.');
     }
 
     const startTime = Date.now();
@@ -498,8 +287,8 @@ If the user's input is a coding or DSA problem statement and contains no code, p
       };
     } catch (error) {
       this.errorCount++;
-      logger.error('NIM image processing failed', { error: error.message, activeSkill });
-      if (config.get('llm.nvidia.fallbackEnabled')) {
+      logger.error('Gemini image processing failed', { error: error.message, activeSkill });
+      if (config.get('llm.fallbackEnabled')) {
         return this.generateFallbackResponse('[image]', activeSkill);
       }
       throw error;
@@ -508,7 +297,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
 
   async processTextWithSkill(text, activeSkill, sessionMemory = [], programmingLanguage = null) {
     if (!this.isInitialized) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
+      throw new Error('LLM service not initialized. Configure GEMINI_API_KEY.');
     }
 
     const startTime = Date.now();
@@ -538,8 +327,8 @@ If the user's input is a coding or DSA problem statement and contains no code, p
       };
     } catch (error) {
       this.errorCount++;
-      logger.error('NIM text processing failed', { error: error.message, activeSkill });
-      if (config.get('llm.nvidia.fallbackEnabled')) {
+      logger.error('Gemini text processing failed', { error: error.message, activeSkill });
+      if (config.get('llm.fallbackEnabled')) {
         return this.generateFallbackResponse(text, activeSkill);
       }
       throw error;
@@ -548,7 +337,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
 
   async processTextWithSkillStream(text, activeSkill, sessionMemory = [], programmingLanguage = null, onDelta = null) {
     if (!this.isInitialized) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
+      throw new Error('LLM service not initialized. Configure GEMINI_API_KEY.');
     }
 
     const startTime = Date.now();
@@ -588,7 +377,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
 
   async processTranscriptionWithIntelligentResponse(text, activeSkill, sessionMemory = [], programmingLanguage = null) {
     if (!this.isInitialized) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
+      throw new Error('LLM service not initialized. Configure GEMINI_API_KEY.');
     }
 
     const startTime = Date.now();
@@ -624,8 +413,8 @@ If the user's input is a coding or DSA problem statement and contains no code, p
       };
     } catch (error) {
       this.errorCount++;
-      logger.error('NIM transcription processing failed', { error: error.message, activeSkill });
-      if (config.get('llm.nvidia.fallbackEnabled')) {
+      logger.error('Gemini transcription processing failed', { error: error.message, activeSkill });
+      if (config.get('llm.fallbackEnabled')) {
         return this.generateIntelligentFallbackResponse(text, activeSkill);
       }
       throw error;
@@ -634,7 +423,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
 
   async processTranscriptionWithIntelligentResponseStream(text, activeSkill, sessionMemory = [], programmingLanguage = null, onDelta = null) {
     if (!this.isInitialized) {
-      throw new Error('LLM service not initialized. Configure NVIDIA_API_KEY or GEMINI_API_KEY.');
+      throw new Error('LLM service not initialized. Configure GEMINI_API_KEY.');
     }
 
     const startTime = Date.now();
@@ -748,7 +537,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
       dsa: 'This appears to be a data structures and algorithms problem. Consider breaking it down into smaller components and identifying the appropriate algorithm or data structure to use.',
       'system-design': 'For this system design question, consider scalability, reliability, and the trade-offs between different architectural approaches.',
       programming: 'This looks like a programming challenge. Focus on understanding the requirements, edge cases, and optimal time/space complexity.',
-      default: 'I can help analyze this content. Please ensure your NVIDIA_API_KEY is properly configured for detailed analysis.',
+      default: 'I can help analyze this content. Please ensure your GEMINI_API_KEY is properly configured for detailed analysis.',
     };
     const response = fallbackResponses[activeSkill] || fallbackResponses.default;
     return {
@@ -773,37 +562,7 @@ If the user's input is a coding or DSA problem statement and contains no code, p
   }
 
   async testConnection() {
-    if (this.activeProvider === 'gemini') {
-      return this.geminiService.testConnection();
-    }
-    if (!this.isInitialized) {
-      return { success: false, error: 'Service not initialized — set NVIDIA_API_KEY (or GEMINI_API_KEY and LLM_PROVIDER=gemini)' };
-    }
-
-    try {
-      const startTime = Date.now();
-      const text = await this.chatCompletion(
-        [{ role: 'user', content: 'Test connection. Please respond with "OK".' }],
-        { temperature: 0, maxTokens: 64 }
-      );
-      const latency = Date.now() - startTime;
-
-      logger.info('Connection test successful', { response: text, latency, model: this.model });
-      return {
-        success: true,
-        response: text,
-        latency,
-        model: this.model,
-      };
-    } catch (error) {
-      const errorAnalysis = this.analyzeError(error);
-      logger.error('Connection test failed', { error: error.message, errorAnalysis });
-      return {
-        success: false,
-        error: this._friendlyTestError(error, errorAnalysis),
-        errorType: errorAnalysis?.type || 'UNKNOWN',
-      };
-    }
+    return this.geminiService.testConnection();
   }
 
   _friendlyTestError(error, analysis) {
@@ -811,50 +570,38 @@ If the user's input is a coding or DSA problem statement and contains no code, p
     const raw = (error?.message || '').toLowerCase();
 
     if (type === 'NETWORK_ERROR' || raw.includes('enotfound') || raw.includes('fetch failed')) {
-      return 'Cannot reach NVIDIA NIM (integrate.api.nvidia.com). Check your internet connection, firewall, or VPN.';
+      return 'Cannot reach the Gemini API (generativelanguage.googleapis.com). Check your internet connection, firewall, or VPN.';
     }
     if (type === 'AUTH_ERROR' || raw.includes('401') || raw.includes('403') || raw.includes('api key')) {
-      return 'Invalid NVIDIA_API_KEY. Generate one at build.nvidia.com and make sure it is exported in ~/.bashrc or .env.';
+      return 'Invalid GEMINI_API_KEY. Generate one at aistudio.google.com and make sure it is exported in ~/.bashrc or .env.';
     }
     if (type === 'RATE_LIMIT_ERROR' || raw.includes('429') || raw.includes('quota')) {
-      return 'Rate limit or quota exceeded on NVIDIA NIM. Wait a moment and try again.';
+      return 'Rate limit or quota exceeded on the Gemini API. Wait a moment and try again.';
     }
     if (type === 'TIMEOUT_ERROR') {
-      return 'Request timed out. The NVIDIA NIM API may be slow or unreachable right now.';
+      return 'Request timed out. The Gemini API may be slow or unreachable right now.';
     }
     return (error?.message || 'Connection failed').substring(0, 300);
   }
 
   updateApiKey(newApiKey) {
-    if (this.activeProvider === 'gemini') {
-      this.geminiService.updateApiKey(newApiKey);
-    } else {
-      process.env.NVIDIA_API_KEY = newApiKey;
-    }
+    this.geminiService.updateApiKey(newApiKey);
     this.isInitialized = false;
     this.initializeClient();
-    logger.info(`API key updated for provider ${this.activeProvider} and client reinitialized`);
+    logger.info('API key updated and Gemini client reinitialized');
   }
 
   getStats() {
-    const base = {
-      isInitialized: this.isInitialized,
-      requestCount: this.requestCount,
-      errorCount: this.errorCount,
-      successRate: this.requestCount > 0 ? ((this.requestCount - this.errorCount) / this.requestCount) * 100 : 0,
+    const gs = this.geminiService.getStats();
+    return {
+      isInitialized: gs.isInitialized,
+      requestCount: gs.requestCount,
+      errorCount: gs.errorCount,
+      successRate: gs.requestCount > 0 ? ((gs.requestCount - gs.errorCount) / gs.requestCount) * 100 : 0,
       model: this.model,
-      provider: this.activeProvider,
-      config: this.activeProvider === 'gemini'
-        ? config.get('llm.gemini')
-        : config.get('llm.nvidia'),
+      provider: 'gemini',
+      config: config.get('llm.gemini'),
     };
-    if (this.activeProvider === 'gemini') {
-      const gs = this.geminiService.getStats();
-      base.requestCount = gs.requestCount;
-      base.errorCount = gs.errorCount;
-      base.isInitialized = gs.isInitialized;
-    }
-    return base;
   }
 }
 

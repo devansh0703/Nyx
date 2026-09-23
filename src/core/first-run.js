@@ -30,18 +30,18 @@ class FirstRunManager {
   needsOnboarding() {
     if (!fs.existsSync(this.envPath)) return true;
     const content = this._readEnv();
-    // The LLM backend is NVIDIA NIM (NVIDIA_API_KEY, usually exported in
+    // The LLM backend is Gemini (GEMINI_API_KEY, usually exported in
     // ~/.bashrc). A bashrc-provided key counts as configured even when the
     // .env has no key — the app reads process.env, which dotenv will not
     // override once the key exists there.
-    const nvidia = (process.env.NVIDIA_API_KEY || (content.NVIDIA_API_KEY || '')).trim();
-    const nvidiaConfigured = !!nvidia && nvidia !== 'your_nvidia_api_key_here';
-    const gemini = (content.GEMINI_API_KEY || '').trim();
-    const geminiConfigured = !!gemini && gemini !== 'your_gemini_api_key_here';
+    const envGemini = (content.GEMINI_API_KEY || '').trim();
+    const geminiConfigured =
+      (!!envGemini && envGemini !== 'your_gemini_api_key_here') ||
+      (!!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here');
     // A configured LLM key means the user is set up. Self-heal a missing
     // sentinel (installs that configured .env manually or predate the
     // wizard) instead of re-showing onboarding on every launch.
-    if (nvidiaConfigured || geminiConfigured) {
+    if (geminiConfigured) {
       if (!fs.existsSync(this.sentinelPath)) this.markCompleted();
       return false;
     }
@@ -92,15 +92,16 @@ class FirstRunManager {
    */
   getStatus() {
     const env = this._readEnv();
-    const gemini = (env.GEMINI_API_KEY || '').trim();
-    const nvidia = (process.env.NVIDIA_API_KEY || (env.NVIDIA_API_KEY || '')).trim();
-    const nvidiaConfigured = !!nvidia && nvidia !== 'your_nvidia_api_key_here';
+    const envGemini = (env.GEMINI_API_KEY || '').trim();
+    const procGemini = (process.env.GEMINI_API_KEY || '').trim();
+    const geminiConfigured =
+      (!!envGemini && envGemini !== 'your_gemini_api_key_here') ||
+      (!!procGemini && procGemini !== 'your_gemini_api_key_here');
     return {
       envExists: fs.existsSync(this.envPath),
       sentinelExists: fs.existsSync(this.sentinelPath),
-      geminiConfigured: !!gemini && gemini !== 'your_gemini_api_key_here',
-      nvidiaConfigured,
-      llmConfigured: nvidiaConfigured || (!!gemini && gemini !== 'your_gemini_api_key_here'),
+      geminiConfigured,
+      llmConfigured: geminiConfigured,
       needsOnboarding: this.needsOnboarding()
     };
   }
@@ -154,11 +155,12 @@ class FirstRunManager {
     }
     return [
       '# Nyx configuration',
-      '# LLM backend: NVIDIA NIM (build.nvidia.com). Export NVIDIA_API_KEY in',
-      '# your ~/.bashrc (recommended) or set it below — the app reads both.',
-      '# Get a key from: https://build.nvidia.com (free tier available).',
+      '# LLM backend: Google Gemini (generativelanguage.googleapis.com).',
+      '# Export GEMINI_API_KEY in your ~/.bashrc (recommended) or set it below',
+      '# — the app reads both.',
+      '# Get a key from: https://aistudio.google.com (free tier available).',
       '',
-      '# NVIDIA_API_KEY=your_nvidia_api_key_here',
+      '# GEMINI_API_KEY=your_gemini_api_key_here',
       '',
       '# Output language for AI responses, notes and summaries.',
       'OUTPUT_LANGUAGE=English',
@@ -173,11 +175,6 @@ class FirstRunManager {
       'AUTO_LAUNCH=off',
       '# Auto-start a listening session when a calendar meeting begins (true|false).',
       'CALENDAR_AUTO_ATTEND=true',
-      '',
-      '# AI providers: NVIDIA NIM (text/vision) + Google Gemini (text/vision/audio).',
-      '# LLM_PROVIDER selects the chat backend: nvidia (default) or gemini.',
-      '# Voice transcription ALWAYS runs on Gemini audio (NVIDIA has no audio input).',
-      'LLM_PROVIDER=nvidia',
       ''
     ].join(os.EOL);
   }

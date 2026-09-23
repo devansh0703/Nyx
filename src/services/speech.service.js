@@ -1,7 +1,7 @@
 // Speech Service — audio capture + VAD + Gemini audio transcription.
 //
-// AI providers: NVIDIA NIM (text/vision) and Google Gemini (text/vision AND
-// audio transcription). There is no Azure and no local Whisper: Gemini's
+// AI provider: Google Gemini (text/vision AND audio transcription). There is
+// no Azure and no local Whisper: Gemini's
 // generateContent accepts inline audio, so mic/system utterances captured as
 // 16kHz mono PCM are wrapped in a WAV header and sent to
 //   POST /v1beta/models/{model}:generateContent  (audio/wav inline_data)

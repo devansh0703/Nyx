@@ -30,12 +30,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendChatMessage: (text) => ipcRenderer.invoke('send-chat-message', text),
   getSkillPrompt: (skillName) => ipcRenderer.invoke('get-skill-prompt', skillName),
 
-  // LLM configuration (NVIDIA NIM)
+  // LLM configuration (Gemini)
   setLlmApiKey: (apiKey) => ipcRenderer.invoke('set-llm-api-key', apiKey),
   getLlmStatus: () => ipcRenderer.invoke('get-llm-status'),
   testLlmConnection: () => ipcRenderer.invoke('test-llm-connection'),
-  setLlmProvider: (provider) => ipcRenderer.invoke('set-llm-provider', provider),
-  // Legacy aliases (onboarding/settings still call these names)
+  // Legacy aliases (older windows may still call these names)
   setGeminiApiKey: (apiKey) => ipcRenderer.invoke('set-llm-api-key', apiKey),
   getGeminiStatus: () => ipcRenderer.invoke('get-llm-status'),
   testGeminiConnection: () => ipcRenderer.invoke('test-llm-connection'),

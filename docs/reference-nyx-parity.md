@@ -19,7 +19,7 @@ ipcMain handlers (main.js)
       ├── PreCallManager           (src/managers/precall.manager.js)
       │     .ics parsing, upcoming meetings, pre-call briefs
       └── LLMService               (src/services/llm.service.js)
-            NVIDIA NIM (llama-3.2-11b-vision-instruct) chat + actions
+            Google Gemini (gemini-3.5-flash-lite) chat + actions
 ```
 
 ## Session lifecycle

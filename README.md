@@ -80,7 +80,7 @@ If you would rather build from source, three steps are all it takes.
 
 3. Add your API keys.
 
-   On first launch the onboarding wizard asks for an **NVIDIA API key** ([build.nvidia.com](https://build.nvidia.com/), the primary AI backend) and a **Gemini API key** ([Google AI Studio](https://aistudio.google.com/), alternate backend + voice transcription). Both can also be exported in `~/.bashrc` or edited in `.env` directly.
+   On first launch the onboarding wizard asks for a **Gemini API key** ([Google AI Studio](https://aistudio.google.com/apikey)) — Gemini is the AI backend for answers, screen vision, and voice transcription. It can also be exported in `~/.bashrc` or edited in `.env` directly.
 
 ### Platform notes
 
@@ -100,26 +100,18 @@ If you would rather build from source, three steps are all it takes.
 
 ## Configuration
 
-The setup script writes sensible defaults. The only required value is an NVIDIA API key for the LLM backend.
+The setup script writes sensible defaults. The only required value is a Gemini API key for the LLM backend.
 
 ```bash
-# Required — NVIDIA NIM (meta/llama-3.2-11b-vision-instruct, text + vision)
-# Get your key at https://build.nvidia.com and export NVIDIA_API_KEY in ~/.bashrc,
-# or set it in .env below.
-NVIDIA_API_KEY=your_nvidia_api_key_here
-
-# Alternate AI backend + all voice transcription (gemini-3.5-flash-lite,
-# text + vision + audio). Get your key at https://aistudio.google.com/apikey
-# and export GEMINI_API_KEY in ~/.bashrc, or set it in .env below.
+# Required — Google Gemini (gemini-3.5-flash-lite: text + vision + audio)
+# Get your key at https://aistudio.google.com/apikey and export GEMINI_API_KEY
+# in ~/.bashrc, or set it in .env below.
 GEMINI_API_KEY=your_gemini_api_key_here
 
 # Output language for AI responses, meeting notes, summaries and action items
 OUTPUT_LANGUAGE=English
 # Meeting audio language (drives Gemini transcription)
 MEETING_AUDIO_LANGUAGE=auto
-
-# Which backend answers chat/vision: nvidia (default) or gemini
-LLM_PROVIDER=nvidia
 ```
 
 Speech is optional. With GEMINI_API_KEY set, the microphone button appears; without it, the microphone button hides itself across the app.
@@ -144,12 +136,12 @@ Nyx ships a full meeting-assistant mode alongside the interview copilot:
 
 ## Voice setup
 
-Voice transcription runs on **Google Gemini** — it accepts audio natively, so there is nothing to install. Set `GEMINI_API_KEY` (bashrc or `.env`) and the mic features come alive. NVIDIA has no audio input, so Gemini handles all transcription regardless of which backend answers chat.
+Voice transcription also runs on **Google Gemini** — it accepts audio natively, so there is nothing to install. Set `GEMINI_API_KEY` (bashrc or `.env`) and the mic features come alive.
 
 ## How it works
 
 1. **Ask.** Use automatic pause detection, choose manual start/stop capture in Settings, or use the screenshot shortcut.
-2. **Reason.** The selected model (NVIDIA NIM vision-language or Gemini) reads the audio or image with full conversation context and works toward a precise answer.
+2. **Reason.** Gemini reads the audio or image with full conversation context and works toward a precise answer.
 3. **Answer.** Voice responses stream to chat, the overlay, or both, according to Settings.
 
 ## Keyboard shortcuts
@@ -185,7 +177,7 @@ Nyx is under active development. The core is stable and improvements ship regula
 - Multi-monitor and area capture support
 - Window binding and positioning
 - Settings management with disguise and stealth modes
-- NVIDIA NIM LLM backend (llama-3.2-11b-vision-instruct: text + vision)
+- Google Gemini LLM backend (gemini-3.5-flash-lite: text + vision + audio)
 - Full meeting-assistant suite: Live Insights, Smart Mode, sessions with AI notes, resume, share links, calendar alerts/auto-attend, system-audio listening, pre-call briefs
 
 ### Planned
@@ -239,7 +231,7 @@ Released under the Apache License 2.0. See [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 - Google Gemini for voice transcription and the alternate AI backend
-- NVIDIA NIM for the AI reasoning backend
+- Google Gemini for the AI reasoning backend
 - Electron for the cross platform desktop runtime
 - [Vysper by varun-singhh](https://github.com/varun-singhh/Vysper) for UI and structure inspiration
 

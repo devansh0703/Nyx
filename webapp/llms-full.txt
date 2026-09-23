@@ -6,7 +6,7 @@
 - Name: Nyx
 - Alternate names: Nyx AI Interview Copilot, Nyx Stealth Overlay, Nyx Cluely Alternative
 - Short description: Free, open-source AI interview copilot with a stealth overlay invisible to screen recording. Apache-2.0-licensed Cluely alternative.
-- Long description: Nyx is a cross-platform Electron desktop application that overlays a small floating window on the user's screen during technical interviews. The overlay is excluded from screen capture by Zoom, Google Meet, Microsoft Teams, Discord, and OBS. The app accepts voice or screenshot input, sends it to NVIDIA NIM for reasoning, and streams the answer back into the overlay word by word. It is a free Apache-2.0-licensed alternative to Cluely, Natively, Interview Coder, FinalRound AI, LockedIn AI, OffscreenAI, CodingVeil, Steal AI, and Ezzi. Architecture is model-agnostic by design; additional backends (OpenAI, Anthropic, local models) are planned.
+- Long description: Nyx is a cross-platform Electron desktop application that overlays a small floating window on the user's screen during technical interviews. The overlay is excluded from screen capture by Zoom, Google Meet, Microsoft Teams, Discord, and OBS. The app accepts voice or screenshot input, sends it to Gemini for reasoning, and streams the answer back into the overlay word by word. It is a free Apache-2.0-licensed alternative to Cluely, Natively, Interview Coder, FinalRound AI, LockedIn AI, OffscreenAI, CodingVeil, Steal AI, and Ezzi. Architecture is model-agnostic by design; additional backends (OpenAI, Anthropic, local models) are planned.
 - URL: https://nyx.devansh0703.dev/
 - Repository: https://github.com/devansh0703/Nyx
 - Author: devansh0703
@@ -16,7 +16,7 @@
 - Created: 2025
 - Current version: 1.0.0
 - Last updated: 2026-07-29
-- Pricing: Free (only user-paid NVIDIA NIM API costs via BYOK)
+- Pricing: Free (only user-paid Gemini API costs via BYOK)
 - Privacy stance: No telemetry, no analytics, no data collection. All processing local except AI requests.
 - Positioning: Free open-source alternative to paid AI interview copilots (Cluely, Natively, Interview Coder, FinalRound AI, LockedIn AI, OffscreenAI, CodingVeil, Steal AI, Ezzi).
 
@@ -29,9 +29,9 @@
 ## Tech stack
 
 - Runtime: Electron, Node.js.
-- LLM backend: NVIDIA NIM API (meta/llama-3.2-11b-vision-instruct) and Google Gemini API (gemini-3.5-flash-lite), selectable in Settings. BYOK model.
+- LLM backend: Google Gemini API (gemini-3.5-flash-lite). BYOK model.
 - Speech-to-text: Gemini audio transcription (gemini-3.5-flash-lite accepts audio natively) with voice-activity detection.
-- Vision: NVIDIA NIM direct image input — no intermediate OCR step.
+- Vision: Gemini direct image input — no intermediate OCR step.
 - Rendering: PrismJS for syntax highlighting, markdown for chat formatting.
 - Window hiding: WDA_EXCLUDEFROMCAPTURE / SetWindowDisplayAffinity (Windows), NSWindowSharingNone (macOS).
 - Build: GitHub Actions for Windows + Linux binaries.
@@ -40,20 +40,20 @@
 
 - Stealth overlay invisible to screen recording (Zoom, Meet, Teams, Discord, OBS).
 - Voice input with natural-pause voice activity detection (Gemini audio transcription).
-- Screenshot input with direct NVIDIA NIM vision analysis — works with HackerRank, LeetCode, CodeSignal, CoderPad, editors, slides, PDFs.
+- Screenshot input with direct Gemini vision analysis — works with HackerRank, LeetCode, CodeSignal, CoderPad, editors, slides, PDFs.
 - Streamed answer rendering with markdown and code highlighting.
 - Persistent session memory across the interview.
 - Floating command bar and floating answer window, both click-through when not interacted with.
 - System tray app for global shortcuts and quick toggles.
 - Configurable keyboard shortcuts for every action.
 - Settings UI for API keys, voice provider, model selection, and personalization.
-- Multiple language support (NVIDIA NIM-side).
+- Multiple language support (Gemini).
 - No telemetry, no analytics, no auto-update beacon.
 
 ## How to use
 
 1. Install Nyx from the latest release on GitHub.
-2. Launch the app. The onboarding wizard asks for a free NVIDIA NIM API key (build.nvidia.com) and a free Gemini API key (aistudio.google.com/apikey).
+2. Launch the app. The onboarding wizard asks for a free Gemini API key (aistudio.google.com/apikey).
 3. Voice input needs nothing extra — it runs on Gemini audio.
 4. Start your interview on any conferencing tool. The overlay floats above your screen and stays hidden from screen recording.
 5. Ask by voice (mic button or Alt+R) or by screenshot (Cmd/Ctrl+Shift+S). The answer streams in instantly.
@@ -71,12 +71,12 @@
 
 ## FAQ
 
-- Is Nyx a free Cluely alternative? Yes — Apache 2.0 licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on NVIDIA NIM's free tier.
+- Is Nyx a free Cluely alternative? Yes — Apache 2.0 licensed, no subscription, no account, no telemetry. BYOK keeps the cost near zero on Gemini's free tier.
 - Is it really invisible during screen sharing? Yes on Windows and macOS, using OS-level window-exclusion flags (WDA_EXCLUDEFROMCAPTURE / SetWindowDisplayAffinity on Windows, NSWindowSharingNone on macOS). Linux lacks the API.
 - How does it compare to Natively, Interview Coder, FinalRound AI, LockedIn AI? Same category. Nyx is the free Apache-2.0-licensed option with no subscription, no account, no telemetry, and cross-platform support (Windows, macOS, Linux).
-- Does it support BYOK? Yes, BYOK is the only mode. Paste your own NVIDIA NIM key.
+- Does it support BYOK? Yes, BYOK is the only mode. Paste your own Gemini key.
 - Does it work with HackerRank, LeetCode, CodeSignal? Yes — screenshot capture works in any application.
-- Do I need an API key? Yes: a free NVIDIA NIM key (build.nvidia.com) and a free Gemini key (aistudio.google.com/apikey).
+- Do I need an API key? Yes: a free Gemini key (aistudio.google.com/apikey).
 - Is voice input required? No. Use screenshots and chat on their own.
 - Is my data collected? No. Only the AI requests you send leave your device.
 - Is it free? Yes, Apache 2.0 licensed.

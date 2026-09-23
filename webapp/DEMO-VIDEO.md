@@ -9,7 +9,7 @@ Recorded for the v1.1.0 launch (2026-09-24): the app runs on a virtual display,
 an interview problem ("Longest Substring Without Repeating Characters") is on
 screen, the screenshot shortcut fires, and the AI Response window streams a full
 sliding-window solution with C++ code. The AI provider in the recording is
-Gemini (`gemini-3.5-flash-lite`) — the same flow works with the NVIDIA provider.
+Gemini (`gemini-3.5-flash-lite`) — the app's only AI backend.
 
 ## Re-recording it yourself
 

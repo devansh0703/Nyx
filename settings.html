@@ -360,7 +360,7 @@
                     </div>
 
                     <div class="settings-note">
-                        Audio transcription runs on Google Gemini. NVIDIA has no audio input, so Gemini handles all voice input.
+                        Audio transcription runs on Google Gemini — the same key and model as chat and vision.
                     </div>
                 </div>
             </div>
@@ -368,30 +368,13 @@
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-robot"></i>
-                    AI Model (NVIDIA NIM / Google Gemini)
+                    AI Model (Google Gemini)
                 </div>
                 <div class="settings-section-content">
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">LLM Provider</div>
-                            <div class="settings-item-description">NVIDIA NIM (Llama 3.2 11B Vision) or Google Gemini (flash-lite, ~15 RPM free tier)</div>
-                        </div>
-                        <select class="input-field" id="llmProvider" style="width:170px">
-                            <option value="nvidia">NVIDIA NIM</option>
-                            <option value="gemini">Google Gemini</option>
-                        </select>
-                    </div>
-                    <div class="settings-item">
-                        <div>
-                            <div class="settings-item-label">NVIDIA API Key</div>
-                            <div class="settings-item-description">Key from build.nvidia.com — usually already exported in ~/.bashrc as NVIDIA_API_KEY. Model: llama-3.2-11b-vision-instruct</div>
-                        </div>
-                        <input type="password" class="input-field" id="nvidiaKey" placeholder="nvapi-… (leave as-is if set in bashrc)">
-                    </div>
-                    <div class="settings-item">
-                        <div>
                             <div class="settings-item-label">Gemini API Key</div>
-                            <div class="settings-item-description">Key from aistudio.google.com/apikey — usually already exported in ~/.bashrc as GEMINI_API_KEY. Model: gemini-3.5-flash-lite (multimodal)</div>
+                            <div class="settings-item-description">Key from aistudio.google.com/apikey — usually already exported in ~/.bashrc as GEMINI_API_KEY. Model: gemini-3.5-flash-lite (multimodal, ~15 RPM free tier)</div>
                         </div>
                         <input type="password" class="input-field" id="geminiKey" placeholder="AIza… (leave as-is if set in bashrc)">
                     </div>
