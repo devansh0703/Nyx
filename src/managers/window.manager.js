@@ -35,6 +35,11 @@ class WindowManager {
     this.bindWindows = true; // Enable window binding by default
     this.windowGap = 10; // Small gap between windows
     this.boundWindowsPosition = { x: 0, y: 0 }; // Track position of bound windows
+
+    // Nyx "Invisibility" toggle: whether overlay windows exclude themselves
+    // from screen capture (setContentProtection). On by default; the Settings
+    // UI can flip it (INVISIBILITY_MODE env), applied live to all windows.
+    this.contentProtectionEnabled = String(process.env.INVISIBILITY_MODE || 'on').toLowerCase() !== 'off';
     
     this.windowConfigs = {
       main: {
@@ -42,7 +47,7 @@ class WindowManager {
         height: 35,
         useContentSize: true,
         file: 'index.html',
-        title: 'OpenCluely'
+        title: 'Nyx'
       },
       chat: {
         width: 500,
@@ -78,7 +83,7 @@ class WindowManager {
         width: 560,
         height: 680,
         file: 'onboarding.html',
-        title: 'Welcome to OpenCluely',
+        title: 'Welcome to Nyx',
         frame: false,
         titleBarStyle: 'hidden',
         transparent: true,
@@ -90,6 +95,21 @@ class WindowManager {
         alwaysOnTop: true,
         visibleOnAllWorkspaces: true,
         fullscreenable: false
+      },
+      // Live Insights overlay — the Nyx-style command-bar + insights card.
+      liveInsights: {
+        width: 560,
+        height: 420,
+        useContentSize: true,
+        file: 'live-insights.html',
+        title: 'Live Insights'
+      },
+      // Dashboard — Activity / meeting notes / briefs / modes / knowledge base.
+      dashboard: {
+        width: 980,
+        height: 680,
+        file: 'dashboard.html',
+        title: 'Dashboard'
       }
     };
 
@@ -117,6 +137,8 @@ class WindowManager {
       await this.createChatWindow();
       await this.createLLMResponseWindow();
       await this.createSettingsWindow();
+      await this.createLiveInsightsWindow();
+      await this.createDashboardWindow();
       
       this.setupWindowEventHandlers();
       this.setupScreenTracking();
@@ -264,6 +286,68 @@ class WindowManager {
     return window;
   }
 
+  async createLiveInsightsWindow() {
+    if (this.windows.has('liveInsights')) {
+      return this.windows.get('liveInsights');
+    }
+    const window = await this.createWindow('liveInsights');
+    this.windows.set('liveInsights', window);
+    window.hide();
+    return window;
+  }
+
+  async createDashboardWindow() {
+    if (this.windows.has('dashboard')) {
+      return this.windows.get('dashboard');
+    }
+    const window = await this.createWindow('dashboard');
+    this.windows.set('dashboard', window);
+    window.hide();
+    return window;
+  }
+
+  async showDashboard() {
+    if (this.isScreenBeingShared) return;
+    let dashboardWindow = this.windows.get('dashboard');
+    if (!dashboardWindow) {
+      dashboardWindow = await this.createDashboardWindow();
+    }
+    this.showOnCurrentDesktop(dashboardWindow);
+    dashboardWindow.focus();
+    logger.info('Dashboard displayed');
+    return dashboardWindow;
+  }
+
+  hideDashboard() {
+    const dashboardWindow = this.windows.get('dashboard');
+    if (dashboardWindow) dashboardWindow.hide();
+  }
+
+  async showLiveInsights() {
+    if (this.isScreenBeingShared) return;
+    let liveWindow = this.windows.get('liveInsights');
+    if (!liveWindow) {
+      liveWindow = await this.createLiveInsightsWindow();
+    }
+    this.showOnCurrentDesktop(liveWindow);
+    logger.info('Live Insights displayed');
+    return liveWindow;
+  }
+
+  hideLiveInsights() {
+    const liveWindow = this.windows.get('liveInsights');
+    if (liveWindow) liveWindow.hide();
+  }
+
+  toggleLiveInsights() {
+    const liveWindow = this.windows.get('liveInsights');
+    if (liveWindow && liveWindow.isVisible()) {
+      this.hideLiveInsights();
+    } else {
+      this.showLiveInsights();
+    }
+  }
+
   async createWindow(type, showOnCreate = false) {
     const windowConfig = this.windowConfigs[type];
     if (!windowConfig) {
@@ -295,8 +379,25 @@ class WindowManager {
 
     // Type-specific window configurations
     let browserWindowOptions;
-    
-    if (type === 'settings') {
+
+    if (type === 'dashboard') {
+      // Dashboard is a normal framed, resizable utility window (not an overlay).
+      browserWindowOptions = {
+        ...baseOptions,
+        frame: true,
+        titleBarStyle: 'default',
+        transparent: false,
+        backgroundColor: '#0a0a0c',
+        resizable: true,
+        minimizable: true,
+        maximizable: true,
+        closable: true,
+        hasShadow: true,
+        skipTaskbar: false,
+        alwaysOnTop: false,
+        visibleOnAllWorkspaces: false,
+      };
+    } else if (type === 'settings') {
       // Completely minimal settings window - no decorations at all
       browserWindowOptions = {
         ...baseOptions,
@@ -338,7 +439,28 @@ class WindowManager {
           disableAutoHideCursor: true
         })
       };
-  } else if (type === 'main') {
+    } else if (type === 'liveInsights') {
+      // Live Insights overlay - frameless like the main command bar
+      browserWindowOptions = {
+        ...baseOptions,
+        frame: false,
+        titleBarStyle: 'hidden',
+        transparent: true,
+        backgroundColor: '#00000000',
+        resizable: true,
+        minimizable: false,
+        maximizable: false,
+        closable: false,
+        hasShadow: false,
+        thickFrame: false,
+        ...(process.platform === 'darwin' && {
+          titleBarStyle: 'hiddenInset',
+          trafficLightPosition: { x: -100, y: -100 },
+          acceptFirstMouse: true
+        }),
+        level: process.platform === 'darwin' ? 'floating' : undefined,
+      };
+    } else if (type === 'main') {
       // Main window configuration - fit to content, completely frameless
       browserWindowOptions = {
         ...baseOptions,
@@ -625,7 +747,10 @@ class WindowManager {
     
     // Make window undetectable by screen capture (if supported)
     try {
-      window.setContentProtection(true);
+      // Respect the Nyx "Invisibility" settings toggle (default: on).
+      if (this.contentProtectionEnabled !== false) {
+        window.setContentProtection(true);
+      }
       if (process.platform === 'linux' && !this._warnedNoContentProtection) {
         this._warnedNoContentProtection = true;
         logger.warn('Screen-capture protection is unavailable on Linux (Electron limitation). The overlay WILL be visible in screen shares. This stealth feature only works on macOS and Windows.');
@@ -711,7 +836,9 @@ class WindowManager {
       main: { x: displayX + 50, y: displayY + topMargin },
       chat: { x: displayX + screenWidth - windowWidth - 50, y: displayY + topMargin },
       llmResponse: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin },
-      settings: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin }
+      settings: { x: displayX + (screenWidth - windowWidth) / 2, y: displayY + topMargin },
+      liveInsights: { x: displayX + 50, y: displayY + topMargin + 50 },
+      dashboard: { x: displayX + Math.round((screenWidth - windowWidth) / 2), y: displayY + topMargin }
     };
 
     const position = positions[type] || { x: displayX + 100, y: displayY + topMargin };
@@ -1192,6 +1319,51 @@ class WindowManager {
   forceAlwaysOnTopForAllWindows() {
     this.enforceAlwaysOnTopForAllWindows();
     logger.info('Manually enforced always-on-top for all windows');
+  }
+
+  /**
+   * Nyx "Invisibility" toggle — apply or remove screen-capture protection
+   * on every overlay window, live, and remember the choice for new windows.
+   * No-op warning on Linux where Electron cannot exclude windows from capture.
+   */
+  setContentProtectionEnabled(enabled) {
+    this.contentProtectionEnabled = !!enabled;
+    this.windows.forEach((window, type) => {
+      if (window.isDestroyed() || type === 'dashboard') return;
+      try {
+        window.setContentProtection(this.contentProtectionEnabled);
+      } catch (e) {
+        logger.debug('setContentProtection failed', { type, error: e.message });
+      }
+    });
+    if (process.platform === 'linux') {
+      logger.warn('Invisibility toggled, but screen-capture protection is not supported on Linux.');
+    }
+    logger.info('Content protection updated', { enabled: this.contentProtectionEnabled });
+    return this.contentProtectionEnabled;
+  }
+
+  /**
+   * Nyx "Change display" — move the overlay windows to the given display id.
+   */
+  moveToDisplay(displayId) {
+    const target = screen.getAllDisplays().find(d => String(d.id) === String(displayId));
+    if (!target) {
+      logger.warn('moveToDisplay: display not found', { displayId });
+      return false;
+    }
+    const { x, y } = target.workArea;
+    this.windows.forEach((window, type) => {
+      if (window.isDestroyed() || type === 'dashboard') return;
+      try {
+        window.setPosition(x + 50, y + 20);
+        logger.debug('Moved window to display', { type, displayId });
+      } catch (e) {
+        logger.debug('moveToDisplay failed', { type, error: e.message });
+      }
+    });
+    this.currentDisplay = target;
+    return true;
   }
 
   // Debug method to test and verify always-on-top functionality

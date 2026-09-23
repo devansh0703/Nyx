@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome to OpenCluely</title>
+    <title>Welcome to Nyx</title>
     <link rel="stylesheet" href="./assests/vendor/fontawesome/all.min.css">
     <style>
         *, *::before, *::after {
@@ -408,7 +408,7 @@
             }
         }
 
-        /* ── Whisper install screen ── */
+        /* ── Setup cards ── */
         .install-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
@@ -702,7 +702,7 @@
         <div class="header">
             <div class="brand">
                 <div class="brand-dot"></div>
-                OpenCluely
+                Nyx
             </div>
             <div class="step-badge" id="stepBadge">Step 1 of 4</div>
         </div>
@@ -722,7 +722,7 @@
             <section class="screen active" data-screen="welcome">
                 <div class="hero">
                     <div class="hero-logo"><i class="fas fa-bolt"></i></div>
-                    <h1>Welcome to OpenCluely</h1>
+                    <h1>Welcome to Nyx</h1>
                     <p class="tagline">
                         Your AI-powered interview &amp; problem-solving copilot.
                         Let's get you set up in about a minute.
@@ -738,11 +738,49 @@
                 </div>
             </section>
 
-            <!-- SCREEN 2: API Key -->
+            <!-- SCREEN 2: NVIDIA API Key -->
             <section class="screen" data-screen="apikey">
+                <h1>Connect NVIDIA NIM</h1>
+                <p class="subtitle">
+                    Nyx uses NVIDIA NIM (Llama 3.2 11B Vision) as its primary AI for answers — text and screen vision. You'll need a free API key.
+                </p>
+
+                <div class="field">
+                    <label for="nvidiaKey">NVIDIA API Key</label>
+                    <div class="input-wrap">
+                        <i class="fas fa-key icon"></i>
+                        <input
+                            type="password"
+                            id="nvidiaKey"
+                            class="input"
+                            placeholder="nvapi-…"
+                            autocomplete="off"
+                            spellcheck="false"
+                        >
+                        <button class="toggle-vis" id="toggleVis" type="button" title="Show / hide">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <div class="hint">
+                        Don't have one? Get a free key at
+                        <a href="https://build.nvidia.com/" target="_blank" rel="noreferrer">
+                            build.nvidia.com
+                        </a>.
+                        It's stored locally in <code>.env</code> — never sent anywhere except NVIDIA.
+                    </div>
+                    <div id="keyStatus" class="status-pill idle" style="display:none;">
+                        <i class="fas fa-circle-info"></i>
+                        <span class="text">Enter your key above</span>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- SCREEN 3: Gemini API Key -->
+            <section class="screen" data-screen="geminiskey">
                 <h1>Connect Google Gemini</h1>
                 <p class="subtitle">
-                    OpenCluely uses Google's Gemini to generate answers. You'll need a free API key.
+                    Gemini is your second AI: an alternate answer backend (gemini-3.5-flash-lite) and the engine for all voice transcription — it accepts audio natively.
                 </p>
 
                 <div class="field">
@@ -757,18 +795,18 @@
                             autocomplete="off"
                             spellcheck="false"
                         >
-                        <button class="toggle-vis" id="toggleVis" type="button" title="Show / hide">
+                        <button class="toggle-vis" id="geminiToggleVis" type="button" title="Show / hide">
                             <i class="fas fa-eye"></i>
                         </button>
                     </div>
                     <div class="hint">
-                        Don't have one? Get a free key at
+                        Get a free key at
                         <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
                             aistudio.google.com/apikey
                         </a>.
-                        It's stored locally in <code>.env</code> — never sent anywhere except Google.
+                        If you already export <code>GEMINI_API_KEY</code> in <code>~/.bashrc</code>, just click Continue.
                     </div>
-                    <div id="keyStatus" class="status-pill idle" style="display:none;">
+                    <div id="geminiStatus" class="status-pill idle" style="display:none;">
                         <i class="fas fa-circle-info"></i>
                         <span class="text">Enter your key above</span>
                     </div>
@@ -776,137 +814,7 @@
 
             </section>
 
-            <!-- SCREEN 3: Speech -->
-            <section class="screen" data-screen="speech">
-                <h1>Speech Recognition</h1>
-                <p class="subtitle">
-                    How would you like to capture audio? You can change this later in Settings.
-                </p>
-
-                <div class="choice-list" id="speechChoices">
-                    <div class="choice-card" data-value="whisper">
-                        <div class="choice-icon"><i class="fas fa-microphone"></i></div>
-                        <div class="choice-text">
-                            <div class="choice-title">Local Whisper</div>
-                            <div class="choice-desc">
-                                Run OpenAI Whisper on your own machine. Free, offline, and private —
-                                no data leaves your computer. Requires Python.
-                            </div>
-                        </div>
-                        <div class="choice-radio"></div>
-                    </div>
-                    <div class="choice-card" data-value="azure">
-                        <div class="choice-icon"><i class="fas fa-cloud"></i></div>
-                        <div class="choice-text">
-                            <div class="choice-title">Azure Speech</div>
-                            <div class="choice-desc">
-                                Microsoft Azure cloud STT. Needs an Azure Speech key + region.
-                                High accuracy, requires internet.
-                            </div>
-                        </div>
-                        <div class="choice-radio"></div>
-                    </div>
-                    <div class="choice-card" data-value="skip">
-                        <div class="choice-icon"><i class="fas fa-forward"></i></div>
-                        <div class="choice-text">
-                            <div class="choice-title">Skip for now</div>
-                            <div class="choice-desc">
-                                Set this up later in Settings. You can still type messages into the chat window.
-                            </div>
-                        </div>
-                        <div class="choice-radio"></div>
-                    </div>
-                </div>
-
-                <!-- Inline Azure key entry (revealed only if Azure selected) -->
-                <div id="azurePanel" style="display:none; margin-top: 14px;">
-                    <div class="field">
-                        <label for="azureKey">Azure Speech Key</label>
-                        <div class="input-wrap">
-                            <i class="fas fa-key icon"></i>
-                            <input type="password" id="azureKey" class="input" placeholder="Azure key" autocomplete="off">
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label for="azureRegion">Azure Region</label>
-                        <div class="input-wrap">
-                            <i class="fas fa-globe icon"></i>
-                            <input type="text" id="azureRegion" class="input" placeholder="eastus" autocomplete="off">
-                        </div>
-                        <div class="hint">e.g. <code>eastus</code>, <code>westus2</code>, <code>westeurope</code></div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- SCREEN 4: Whisper install (only shown when whisper chosen) -->
-            <section class="screen" data-screen="whisper">
-                <h1>Local Whisper Setup</h1>
-                <p class="subtitle" id="whisperSubtitle">
-                    Detecting your Whisper installation…
-                </p>
-
-                <div class="detect-row" id="detectRow">
-                    <div>
-                        <div style="font-size:11px; color: var(--text-faint); margin-bottom:2px;">Detected command</div>
-                        <code id="detectCmd">scanning…</code>
-                    </div>
-                    <div id="detectStatus" class="status-pill idle">
-                        <i class="fas fa-circle-notch fa-spin"></i>
-                        <span class="text">Probing</span>
-                    </div>
-                </div>
-
-                <div class="install-card" id="installCard">
-                    <div class="install-title">
-                        <i class="fas fa-circle-info"></i>
-                        <span id="installCardTitle">What we'll do</span>
-                    </div>
-                    <ul class="install-list" id="installList"></ul>
-                </div>
-
-                <div class="install-log" id="installLog"></div>
-            </section>
-
-            <!-- SCREEN 5: Whisper Model Download -->
-            <section class="screen" data-screen="model-download">
-                <h1>Whisper Model Download</h1>
-                <p class="subtitle" id="modelDownloadSubtitle">
-                    The Whisper transcription model needs to be downloaded before first use.
-                </p>
-
-                <div class="install-card" id="modelDownloadCard">
-                    <div class="install-title">
-                        <i class="fas fa-circle-info"></i>
-                        <span id="modelDownloadTitle">Choose when to download the model</span>
-                    </div>
-                    <div class="choice-list" id="modelDownloadChoices">
-                        <div class="choice-card" data-value="now">
-                            <div class="choice-icon"><i class="fas fa-download"></i></div>
-                            <div class="choice-text">
-                                <div class="choice-title">Download Now</div>
-                                <div class="choice-desc">
-                                    Download the <code>turbo</code> model (~150 MB) now so it's ready when you need it. Recommended.
-                                </div>
-                            </div>
-                            <div class="choice-radio"></div>
-                        </div>
-                        <div class="choice-card" data-value="later">
-                            <div class="choice-icon"><i class="fas fa-clock"></i></div>
-                            <div class="choice-text">
-                                <div class="choice-title">Download on First Use</div>
-                                <div class="choice-desc">
-                                    Download the model automatically when you first use voice input. First transcription will take longer.
-                                </div>
-                            </div>
-                            <div class="choice-radio"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="install-log" id="modelDownloadLog"></div>
-            </section>
-
-            <!-- SCREEN 6: Finish (star prompt + summary) -->
+            <!-- SCREEN 4: Finish (star prompt + summary) -->
             <section class="screen" data-screen="finish">
                 <div class="finish-card">
                     <div class="check"><i class="fas fa-check"></i></div>
@@ -921,7 +829,7 @@
 
                     <div class="star-card">
                         <div class="star-icon"><i class="fas fa-star"></i></div>
-                        <h3>Enjoying OpenCluely?</h3>
+                        <h3>Enjoying Nyx?</h3>
                         <p>
                             If this saved you time in an interview or a coding session,
                             a quick ⭐ on GitHub helps others find it.
@@ -957,9 +865,9 @@
         <!-- ── Footer ── -->
         <div class="footer">
             <div class="dev">
-                Built by <a href="https://techycsr.dev" target="_blank" rel="noreferrer"><strong>@TechyCSR</strong></a>
+                Built by <a href="https://github.com/devansh0703/Nyx" target="_blank" rel="noreferrer"><strong>@devansh0703</strong></a>
                 <span style="opacity:0.5; margin: 0 8px;">·</span>
-                <a href="https://github.com/TechyCSR/OpenCluely" target="_blank" rel="noreferrer">
+                <a href="https://github.com/devansh0703/Nyx" target="_blank" rel="noreferrer">
                     <i class="fab fa-github"></i> GitHub
                 </a>
             </div>

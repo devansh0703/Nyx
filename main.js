@@ -36,8 +36,7 @@ require("dotenv").config({ path: ENV_PATH });
 // Format a value for a single .env line. Newlines are collapsed to spaces and
 // backslashes are kept verbatim (doubling them corrupts Windows paths on the
 // next load). Values containing whitespace, a double-quote, or a leading '#'
-// are wrapped in single quotes so dotenv parses them as one token — essential
-// for Whisper commands like:  "C:\Users\Jane Doe\...\python.exe" -m whisper
+// are wrapped in single quotes so dotenv parses them as one token.
 function formatEnvValue(raw) {
   const v = String(raw).replace(/[\r\n]+/g, " ").trim();
   if (!/[\s"#]/.test(v)) return v;
@@ -55,7 +54,7 @@ function formatEnvValue(raw) {
 // exhaust the X11 client limit, producing "Maximum number of clients reached".
 //
 // Disabling hardware acceleration and the GPU subprocess forces Chromium to
-// render via the CPU (SwiftShader). OpenCluely's UI is light enough that
+// render via the CPU (SwiftShader). Nyx's UI is light enough that
 // this is imperceptible, and it eliminates the GPU crash entirely.
 if (process.platform === "linux") {
   app.disableHardwareAcceleration();
@@ -80,12 +79,12 @@ const config = require("./src/core/config");
 const FirstRunManager = require("./src/core/first-run");
 
 // ── Global crash guard ──
-// The speech path spawns external processes (Whisper CLI, and on macOS/Linux
-// the sox/rec/arecord recorders via node-record-lpcm16). A missing recorder
-// binary makes that library emit an 'error' on its child process with no
-// listener, which would otherwise become an uncaughtException and quit the
-// entire app the moment the user clicks the mic. We log and stay alive — the
-// speech service surfaces a friendly status to the UI instead.
+// The speech path spawns external recorder processes (arecord/sox via
+// node-record-lpcm16). A missing recorder binary makes that library emit an
+// 'error' on its child process with no listener, which would otherwise become
+// an uncaughtException and quit the entire app the moment the user clicks the
+// mic. We log and stay alive — the speech service surfaces a friendly status
+// to the UI instead.
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception (kept alive)", {
     error: err && err.message,
@@ -107,6 +106,12 @@ const llmService = require("./src/services/llm.service");
 // Managers
 const windowManager = require("./src/managers/window.manager");
 const sessionManager = require("./src/managers/session.manager");
+
+// Nyx-parity managers: session lifecycle (Live Insights/notes), customize
+// (modes + knowledge base), and pre-call briefs (ICS calendar).
+const sessionLifecycle = require("./src/managers/session-lifecycle.manager");
+const customizeManager = require("./src/managers/customize.manager");
+const preCallManager = require("./src/managers/precall.manager");
 
 class ApplicationController {
   constructor() {
@@ -136,16 +141,13 @@ class ApplicationController {
       // any directory). ENV_PATH is the same file dotenv loaded at startup
       // and that persistEnvUpdates() writes to.
       envPath: ENV_PATH,
-      sentinelPath: path.join(app.getPath("userData"), ".opencluely-firstrun-completed"),
+      sentinelPath: path.join(app.getPath("userData"), ".nyx-firstrun-completed"),
     });
-    // Lazily-initialised in getWhisperInstaller() so tests can mock
-    // the constructor without polluting main-process startup.
-    this._whisperInstaller = null;
     this.isFirstRun = false;
 
     // Window configurations for reference
     this.windowConfigs = {
-      main: { title: "OpenCluely" },
+      main: { title: "Nyx" },
       chat: { title: "Chat" },
       llmResponse: { title: "AI Response" },
       settings: { title: "Settings" },
@@ -153,6 +155,14 @@ class ApplicationController {
 
     this.setupStealth();
     this.setupEventHandlers();
+
+    // Point the Nyx-parity managers at the persistent userData dir so
+    // meeting notes, modes, knowledge base and calendar sources survive
+    // restarts on every platform.
+    const userDataDir = app.getPath("userData");
+    sessionLifecycle.setDataDir(userDataDir);
+    customizeManager.setDataDir(userDataDir);
+    preCallManager.setDataDir(userDataDir);
   }
 
   setupStealth() {
@@ -261,6 +271,8 @@ class ApplicationController {
 
       await windowManager.initializeWindows({ showMainWindow: !isFirstRun });
       this.setupGlobalShortcuts();
+      // Nyx parity: watch calendar sources for meeting starts/ends
+      this.startMeetingAlertScheduler();
 
       // Initialize default stealth mode with terminal icon
       this.updateAppIcon("terminal");
@@ -388,35 +400,181 @@ class ApplicationController {
     );
   }
 
+  // Default shortcut map: action id → default accelerator.
+  // Users can override any accelerator (or set "disabled") via SHORTCUT_<ID>
+  // in .env or Settings → Shortcuts.
+  static DEFAULT_SHORTCUTS = {
+    screenshot: "CommandOrControl+Shift+S",
+    toggleVisibility: "CommandOrControl+Shift+V",
+    forceOnTop: "CommandOrControl+Shift+T",
+    screenAssist: "CommandOrControl+Return",
+    stealthAnswer: "CommandOrControl+Shift+Return",
+    clearContext: "CommandOrControl+R",
+    toggleLiveInsights: "CommandOrControl+\\",
+    moveLeft: "CommandOrControl+Left",
+    moveRight: "CommandOrControl+Right",
+    toggleInteraction: "CommandOrControl+Shift+I",
+    openChat: "CommandOrControl+Shift+C",
+    clearContext2: "CommandOrControl+Shift+\\",
+    openSettings: "CommandOrControl+,",
+    toggleMic: "Alt+R",
+    moveUp: "CommandOrControl+Up",
+    moveDown: "CommandOrControl+Down",
+  };
+
+  // Actions available for binding. Values are the handler functions; the keys
+  // double as the SHORTCUT_<ID> env names (upper-cased).
+  getShortcutActions() {
+    return {
+      screenshot: () => this.triggerScreenshotOCR(),
+      toggleVisibility: () => windowManager.toggleVisibility(),
+      forceOnTop: () => windowManager.forceAlwaysOnTopForAllWindows(),
+      screenAssist: () => this.screenAssist(),
+      stealthAnswer: () => this.stealthAnswer(),
+      clearContext: () => this.clearSessionMemory(),
+      toggleLiveInsights: () => windowManager.toggleLiveInsights(),
+      // moveLeft/Right combine the legacy duplicate bindings: always nudge the
+      // bound windows, and honor the context-sensitive arrow behaviour too.
+      moveLeft: () => { windowManager.moveBoundWindows(-40, 0); this.handleLeftArrow(); },
+      moveRight: () => { windowManager.moveBoundWindows(40, 0); this.handleRightArrow(); },
+      toggleInteraction: () => windowManager.toggleInteraction(),
+      openChat: () => windowManager.switchToWindow("chat"),
+      clearContext2: () => this.clearSessionMemory(),
+      openSettings: () => windowManager.showSettings(),
+      toggleMic: () => this.toggleSpeechRecognition(),
+      moveUp: () => this.handleUpArrow(),
+      moveDown: () => this.handleDownArrow(),
+    };
+  }
+
+  /** Resolve the effective accelerator for an action id: env override or default. */
+  getShortcutAccelerator(actionId) {
+    const envKey = `SHORTCUT_${actionId.toUpperCase()}`;
+    const override = (process.env[envKey] || "").trim();
+    if (!override) return ApplicationController.DEFAULT_SHORTCUTS[actionId] || null;
+    if (override.toLowerCase() === "disabled" || override.toLowerCase() === "off") return null;
+    return override;
+  }
+
   setupGlobalShortcuts() {
-    const shortcuts = {
-      "CommandOrControl+Shift+S": () => this.triggerScreenshotOCR(),
-      "CommandOrControl+Shift+V": () => windowManager.toggleVisibility(),
-      "CommandOrControl+Shift+I": () => windowManager.toggleInteraction(),
-      "CommandOrControl+Shift+C": () => windowManager.switchToWindow("chat"),
-      "CommandOrControl+Shift+\\": () => this.clearSessionMemory(),
-      "CommandOrControl+,": () => windowManager.showSettings(),
+    this.registerShortcutsFromSettings();
+  }
+
+  /**
+   * Register all shortcuts from the current settings. Also used after the user
+   * edits keybinds (Settings → Shortcuts) — unregisters everything first so
+   * changes apply live without an app restart.
+   */
+  registerShortcutsFromSettings() {
+    try { globalShortcut.unregisterAll(); } catch (_) { /* ignore */ }
+    const actions = this.getShortcutActions();
+    Object.entries(actions).forEach(([actionId, handler]) => {
+      const accelerator = this.getShortcutAccelerator(actionId);
+      if (!accelerator) {
+        logger.debug("Shortcut disabled", { actionId });
+        return;
+      }
+      let success = false;
+      try {
+        success = globalShortcut.register(accelerator, handler);
+      } catch (e) {
+        logger.warn("Shortcut registration threw", { actionId, accelerator, error: e.message });
+      }
+      if (!success) {
+        logger.warn("Shortcut registration failed (conflict or invalid)", { actionId, accelerator });
+      } else {
+        logger.debug("Global shortcut registered", { actionId, accelerator });
+      }
+    });
+    // Legacy bindings without configurable ids
+    const legacy = {
       "Alt+A": () => windowManager.toggleInteraction(),
-      "Alt+R": () => this.toggleSpeechRecognition(),
-      "CommandOrControl+Shift+T": () => windowManager.forceAlwaysOnTopForAllWindows(),
       "CommandOrControl+Shift+Alt+T": () => {
         const results = windowManager.testAlwaysOnTopForAllWindows();
         logger.info('Always-on-top test triggered via shortcut', results);
       },
-      // Context-sensitive shortcuts based on interaction mode
-      "CommandOrControl+Up": () => this.handleUpArrow(),
-      "CommandOrControl+Down": () => this.handleDownArrow(),
-      "CommandOrControl+Left": () => this.handleLeftArrow(),
-      "CommandOrControl+Right": () => this.handleRightArrow(),
     };
-
-    Object.entries(shortcuts).forEach(([accelerator, handler]) => {
+    Object.entries(legacy).forEach(([accelerator, handler]) => {
       const success = globalShortcut.register(accelerator, handler);
-      logger.debug("Global shortcut registered", { accelerator, success });
+      logger.debug("Legacy shortcut registered", { accelerator, success });
     });
   }
 
+  // ── Meeting alerts / auto-attend scheduler (Nyx parity) ──────────────
+  // Polls the PreCallManager calendar sources every 30s. When a meeting hits
+  // its start time it broadcasts a "meeting-starting" alert (the dashboard
+  // shows a Join banner) and, if CALENDAR_AUTO_ATTEND is on, starts a Listen
+  // session automatically. When the calendar slot ends, the auto-attended
+  // session stops and notes are generated.
+  startMeetingAlertScheduler() {
+    if (this._meetingAlertTimer) return;
+    this._alertedMeetingIds = new Set();
+    this._meetingAlertTimer = setInterval(async () => {
+      try {
+        const autoAttend = String(process.env.CALENDAR_AUTO_ATTEND || "true").toLowerCase() !== "false";
+        const meetings = preCallManager.getUpcomingMeetings(24, 10);
+        const now = Date.now();
+        for (const meeting of meetings) {
+          const startMs = new Date(meeting.start).getTime();
+          const endMs = meeting.end ? new Date(meeting.end).getTime() : null;
+          const id = `${meeting.summary}@${meeting.start}`;
+          // Fire the alert when the meeting has just started (within 2 min)
+          if (startMs <= now && now - startMs < 120000 && !this._alertedMeetingIds.has(id)) {
+            this._alertedMeetingIds.add(id);
+            windowManager.broadcastToAllWindows("meeting-starting", meeting);
+            if (autoAttend && !sessionLifecycle.isActive()) {
+              const status = sessionLifecycle.autoAttendMeeting(meeting);
+              if (status) {
+                try {
+                  if (speechService.isAvailable && speechService.isAvailable() && !speechService.getStatus().isRecording) {
+                    speechService.startRecording();
+                  }
+                } catch (_) { /* ignore */ }
+                windowManager.broadcastToAllWindows("session-status-changed", status);
+                windowManager.showLiveInsights();
+              }
+            }
+          }
+          // End the auto-attended session when the calendar slot is over
+          if (
+            sessionLifecycle.isAutoAttending() &&
+            sessionLifecycle.getStatus().title === meeting.summary &&
+            // Match on start time too so two same-named meetings ("Standup")
+            // can't end each other's sessions prematurely.
+            (!sessionLifecycle.getAutoAttendStart() || sessionLifecycle.getAutoAttendStart() === meeting.start) &&
+            ((endMs && endMs <= now) || (!endMs && startMs <= now - 60 * 60000))
+          ) {
+            const endedStatus = sessionLifecycle.autoAttendEnd();
+            if (endedStatus) {
+              windowManager.broadcastToAllWindows("session-status-changed", endedStatus);
+              try {
+                if (speechService.getStatus && speechService.getStatus().isRecording) {
+                  speechService.stopRecording();
+                }
+              } catch (_) { /* ignore */ }
+              const notes = await sessionLifecycle.generateAndSaveNotes(llmService);
+              logger.info("Auto-attended session notes generated", { id: notes.id });
+            }
+          }
+        }
+        // Keep the alert set bounded
+        if (this._alertedMeetingIds.size > 200) {
+          this._alertedMeetingIds = new Set([...this._alertedMeetingIds].slice(-100));
+        }
+      } catch (e) {
+        logger.debug("Meeting alert scheduler tick failed", { error: e.message });
+      }
+    }, 30000);
+    logger.info("Meeting alert scheduler started (30s poll)");
+  }
+
   setupServiceEventHandlers() {
+    // Live-session transcript stream: push every transcript entry to all
+    // windows (Live Insights shows it live via preload's onTranscriptEntry).
+    sessionLifecycle.events.on("transcript-entry", (entry) => {
+      windowManager.broadcastToAllWindows("live-transcript-entry", entry);
+    });
+
     speechService.on("recording-started", () => {
       windowManager.handleRecordingStarted();
     });
@@ -425,8 +583,8 @@ class ApplicationController {
       windowManager.handleRecordingStopped();
     });
 
-    speechService.on("transcription", (text) => {
-      this.handleTranscriptionFragment(text);
+    speechService.on("transcription", (text, meta = {}) => {
+      this.handleTranscriptionFragment(text, meta);
     });
 
     speechService.on("interim-transcription", (text) => {
@@ -486,10 +644,19 @@ class ApplicationController {
       return speechService.getStatus();
     });
 
-    // Raw PCM audio captured by the renderer's Web Audio API (Windows Whisper path)
+    // Raw PCM audio captured by the renderer's Web Audio API
     ipcMain.on("audio-chunk", (_event, data) => {
       if (data && data.buffer) {
         speechService.handleAudioChunkFromRenderer(Buffer.from(data.buffer));
+      }
+    });
+
+    // Raw PCM from the system/loopback capture stream (the other party's voice).
+    // Routed through the same VAD pipeline but tagged source=system so the
+    // transcript distinguishes "you" from "them" (Nyx listens to both).
+    ipcMain.on("audio-chunk-system", (_event, data) => {
+      if (data && data.buffer) {
+        speechService.handleSystemAudioChunk(Buffer.from(data.buffer));
       }
     });
 
@@ -652,16 +819,7 @@ class ApplicationController {
       }
     });
 
-    ipcMain.handle("set-gemini-api-key", (event, apiKey) => {
-      llmService.updateApiKey(apiKey);
-      return llmService.getStats();
-    });
-
-    ipcMain.handle("get-gemini-status", () => {
-      return llmService.getStats();
-    });
-
-    // Window binding IPC handlers
+    // Settings handlers
     ipcMain.handle("set-window-binding", (event, enabled) => {
       return windowManager.setWindowBinding(enabled);
     });
@@ -687,15 +845,426 @@ class ApplicationController {
       return windowManager.getWindowBindingStatus();
     });
 
-    ipcMain.handle("test-gemini-connection", async () => {
+    // Settings handlers
+    // ── Nyx parity: window toggles for Live Insights + Dashboard ──────
+    ipcMain.handle("toggle-live-insights", () => {
+      windowManager.toggleLiveInsights();
+      return { success: true };
+    });
+    ipcMain.handle("show-dashboard", () => {
+      windowManager.showDashboard();
+      return { success: true };
+    });
+
+    // ── Nyx parity: session lifecycle / Live Insights IPC ────────────
+    ipcMain.handle("session-start", (_e, opts = {}) => {
+      const status = sessionLifecycle.start({ audio: opts.audio !== false });
+      // Listen-mode: while a session is live with audio on, make sure speech
+      // recognition is running so the transcript fills up.
+      if (status.active && status.audioEnabled) {
+        try {
+          if (speechService.isAvailable && speechService.isAvailable() && !speechService.getStatus().isRecording) {
+            speechService.startRecording();
+          }
+        } catch (err) {
+          logger.warn("Could not auto-start speech for session", { error: err.message });
+        }
+      }
+      windowManager.broadcastToAllWindows("session-status-changed", status);
+      return status;
+    });
+
+    // Meeting alert actions (dashboard "Join" banner)
+    ipcMain.handle("meeting-alert-dismiss", () => {
+      // Nothing to clean up in main — the renderer just hides the banner.
+      return { success: true };
+    });
+    ipcMain.handle("meeting-alert-join", async () => {
+      // Manual join: start a session if none is active (Live Insights opens).
+      if (!sessionLifecycle.isActive()) {
+        const status = sessionLifecycle.start({ audio: true });
+        try {
+          if (speechService.isAvailable && speechService.isAvailable() && !speechService.getStatus().isRecording) {
+            speechService.startRecording();
+          }
+        } catch (_) { /* ignore */ }
+        windowManager.broadcastToAllWindows("session-status-changed", status);
+        windowManager.showLiveInsights();
+      }
+      return sessionLifecycle.getStatus();
+    });
+
+    ipcMain.handle("session-stop", async () => {
+      const status = sessionLifecycle.getStatus();
+      if (!status.active) return null;
+      try {
+        if (speechService.getStatus && speechService.getStatus().isRecording) {
+          speechService.stopRecording();
+        }
+      } catch (_) { /* ignore */ }
+      sessionLifecycle.stop();
+      windowManager.broadcastToAllWindows("session-status-changed", sessionLifecycle.getStatus());
+      try {
+        const notes = await sessionLifecycle.generateAndSaveNotes(llmService);
+        logger.info("Session ended; notes generated", { id: notes.id });
+        return notes;
+      } catch (e) {
+        logger.error("Note generation failed on session stop", { error: e.message });
+        return null;
+      }
+    });
+
+    ipcMain.handle("session-status", () => sessionLifecycle.getStatus());
+
+    // System-audio parser (Nyx listens to the other party): on/off toggle.
+    ipcMain.handle("session-toggle-system-audio", () => {
+      const enabled = !speechService.isSystemAudioEnabled();
+      speechService.setSystemAudioEnabled(enabled);
+      windowManager.broadcastToAllWindows("session-status-changed", sessionLifecycle.getStatus());
+      return enabled;
+    });
+    ipcMain.handle("session-get-system-audio", () => speechService.isSystemAudioEnabled());
+
+    ipcMain.handle("session-smart-mode", (_e, enabled) => {
+      const on = sessionLifecycle.setSmartMode(enabled);
+      windowManager.broadcastToAllWindows("session-status-changed", sessionLifecycle.getStatus());
+      return on;
+    });
+
+    // Nyx "Resume Session": continue a saved meeting's listening session.
+    ipcMain.handle("session-resume", (_e, meetingId) => {
+      const result = sessionLifecycle.resume(meetingId);
+      if (result.ok) {
+        try {
+          if (speechService.isAvailable && speechService.isAvailable() && !speechService.getStatus().isRecording) {
+            speechService.startRecording();
+          }
+        } catch (err) {
+          logger.warn("Could not auto-start speech for resumed session", { error: err.message });
+        }
+      }
+      windowManager.broadcastToAllWindows("session-status-changed", sessionLifecycle.getStatus());
+      return result;
+    });
+
+    ipcMain.handle("session-toggle-audio", () => {
+      const enabled = sessionLifecycle.toggleAudio();
+      // Pausing Listen pauses the mic too.
+      try {
+        if (!enabled && speechService.getStatus && speechService.getStatus().isRecording) {
+          speechService.stopRecording();
+        } else if (enabled && speechService.isAvailable && speechService.isAvailable() &&
+                   sessionLifecycle.isActive() && !speechService.getStatus().isRecording) {
+          speechService.startRecording();
+        }
+      } catch (_) { /* ignore */ }
+      windowManager.broadcastToAllWindows("session-status-changed", sessionLifecycle.getStatus());
+      return enabled;
+    });
+
+    ipcMain.handle("session-get-transcript", () => sessionLifecycle.getTranscriptText());
+
+    ipcMain.handle("live-action-run", async (event, actionId) => {
+      try {
+        let full = "";
+        const result = await sessionLifecycle.runAction(actionId, llmService, {
+          onDelta: (d) => {
+            full += d;
+            try { event.sender.send("live-action-delta", d); } catch (_) {}
+          },
+        });
+        sessionManager.addModelResponse(result.response, { skill: "meeting", action: actionId });
+        return result;
+      } catch (e) {
+        logger.error("Live action failed", { actionId, error: e.message });
+        return { response: "", metadata: { error: e.message } };
+      }
+    });
+
+    ipcMain.handle("live-ask", async (event, question) => {
+      try {
+        const result = await sessionLifecycle.askAboutTranscript(question, llmService, {
+          onDelta: (d) => {
+            try { event.sender.send("live-action-delta", d); } catch (_) {}
+          },
+        });
+        sessionManager.addModelResponse(result.response, { skill: "meeting", action: "ask" });
+        return result;
+      } catch (e) {
+        logger.error("Live ask failed", { error: e.message });
+        return { response: "", metadata: { error: e.message } };
+      }
+    });
+
+    // ── Meeting notes (Dashboard Activity) ──────────────────────────────
+    ipcMain.handle("meetings-list", () => sessionLifecycle.listMeetings());
+    ipcMain.handle("meeting-get", (_e, id) => sessionLifecycle.getMeeting(id));
+    ipcMain.handle("meeting-update", (_e, { id, patch }) =>
+      sessionLifecycle.updateMeetingNotes(id, patch || {}));
+    ipcMain.handle("meeting-delete", (_e, id) => sessionLifecycle.deleteMeeting(id));
+    ipcMain.handle("meeting-share", (_e, id) => {
+      const m = sessionLifecycle.getMeeting(id);
+      if (!m) return null;
+      // Local-first "share" (Nyx "Share notes — generate a public link"):
+      // write a standalone HTML summary into userData/shared-notes and return
+      // its file:// URL. No server, no upload — the link works offline and can
+      // be attached to emails/chat, and the URL is copied to the clipboard.
+      const esc2 = (s) => String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      const md = (t) => esc2(t).replace(/\n/g, "<br>");
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc2(m.title)}</title></head>
+<body style="font-family:sans-serif;max-width:760px;margin:40px auto;color:#222">
+<h1>${esc2(m.title)}</h1>
+<p style="color:#777">${esc2(m.startedAt || "")} — ${esc2(m.endedAt || "")}</p>
+<h2>Notes</h2><div>${md(m.detailedNotes)}</div>
+<h2>Key Insights</h2><div>${md(m.keyInsights)}</div>
+<h2>Next Steps</h2><div>${md(m.nextSteps)}</div>
+</body></html>`;
+      try {
+        const fsMod = require("fs");
+        const pathMod = require("path");
+        const shareDir = pathMod.join(app.getPath("userData"), "shared-notes");
+        // 0o700 dir / 0o600 file: meeting notes must not be readable by other
+        // local accounts on shared Linux machines (umask 022 would expose them).
+        fsMod.mkdirSync(shareDir, { recursive: true, mode: 0o700 });
+        const safeName = String(id).replace(/[^a-zA-Z0-9_-]/g, "");
+        const filePath = pathMod.join(shareDir, `${safeName || "meeting"}.html`);
+        fsMod.writeFileSync(filePath, html, { encoding: "utf8", mode: 0o600 });
+        const url = require("url").pathToFileURL(filePath).toString();
+        try { require("electron").clipboard.writeText(url); } catch (_) { /* ignore */ }
+        logger.info("Meeting share link created", { id, url });
+        return { url };
+      } catch (e) {
+        logger.error("Failed to write share link", { id, error: e.message });
+        return { url: null, error: e.message };
+      }
+    });
+    ipcMain.handle("meeting-followup-email", async (_e, id) => {
+      try {
+        return await sessionLifecycle.generateFollowUpEmailForMeeting(id, llmService);
+      } catch (e) {
+        logger.error("Follow-up email generation failed", { id, error: e.message });
+        return null;
+      }
+    });
+    ipcMain.handle("meeting-coaching", async (_e, id) => {
+      try {
+        return await sessionLifecycle.generateMissedOpportunitiesForMeeting(id, llmService);
+      } catch (e) {
+        logger.error("Coaching generation failed", { id, error: e.message });
+        return null;
+      }
+    });
+
+    // ── Call score + analytics (Nyx: Call Coaching & Analytics) ────────
+    ipcMain.handle("meeting-score", async (_e, id) => {
+      try {
+        return await sessionLifecycle.generateCallScoreForMeeting(id, llmService);
+      } catch (e) {
+        logger.error("Call scoring failed", { id, error: e.message });
+        return { error: e.message };
+      }
+    });
+    ipcMain.handle("analytics-summary", () => sessionLifecycle.getMeetingAnalytics());
+
+    // ── Customize: modes + knowledge base ────────────────────────────────
+    ipcMain.handle("modes-list", () => customizeManager.listModes());
+    ipcMain.handle("mode-get", (_e, id) => customizeManager.getMode(id));
+    ipcMain.handle("mode-upsert", (_e, mode) => customizeManager.upsertMode(mode));
+    ipcMain.handle("mode-delete", (_e, id) => customizeManager.deleteMode(id));
+    ipcMain.handle("mode-set-active", (_e, id) => {
+      const active = customizeManager.setActiveMode(id);
+      windowManager.broadcastToAllWindows("mode-changed", { id: active });
+      return active;
+    });
+    ipcMain.handle("mode-get-active", () => {
+      const mode = customizeManager.getActiveMode();
+      return mode ? mode.id : null;
+    });
+    ipcMain.handle("knowledge-list", () => customizeManager.listKnowledge());
+    ipcMain.handle("knowledge-add", (_e, { title, content }) => customizeManager.addKnowledge(title, content));
+    ipcMain.handle("knowledge-delete", (_e, id) => customizeManager.deleteKnowledge(id));
+    // Web-link knowledge source (Nyx: help centers / web pages → knowledge).
+    ipcMain.handle("knowledge-add-url", async (_e, { title, url }) => {
+      try {
+        return await customizeManager.addKnowledgeFromUrl(title, url);
+      } catch (e) {
+        logger.error("Knowledge URL fetch failed", { url, error: e.message });
+        return { error: e.message };
+      }
+    });
+
+    // ── Custom live actions (Nyx: prompts + links as one-click chips) ──
+    ipcMain.handle("custom-actions-list", () => sessionLifecycle.listCustomActions());
+    ipcMain.handle("custom-action-get", (_e, id) => sessionLifecycle.getCustomAction(id));
+    ipcMain.handle("custom-action-add", (_e, action) => {
+      const created = sessionLifecycle.addCustomAction(action || {});
+      windowManager.broadcastToAllWindows("custom-actions-changed", { id: created.id });
+      return created;
+    });
+    ipcMain.handle("custom-action-update", (_e, { id, patch }) => {
+      const updated = sessionLifecycle.updateCustomAction(id, patch || {});
+      if (updated) windowManager.broadcastToAllWindows("custom-actions-changed", { id });
+      return updated;
+    });
+    ipcMain.handle("custom-action-delete", (_e, id) => {
+      const deleted = sessionLifecycle.deleteCustomAction(id);
+      if (deleted) windowManager.broadcastToAllWindows("custom-actions-changed", { id });
+      return deleted;
+    });
+
+    // ── Notes template (Nyx: custom meeting notes templates) ───────────
+    ipcMain.handle("notes-template-get", () => sessionLifecycle.getNotesTemplate());
+    ipcMain.handle("notes-template-set", (_e, template) => {
+      try {
+        sessionLifecycle.setNotesTemplate(template);
+        return { success: true };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    });
+    ipcMain.handle("notes-template-reset", () => {
+      sessionLifecycle.resetNotesTemplate();
+      return { success: true };
+    });
+
+    // ── Pre-call briefs ──────────────────────────────────────────────────
+    ipcMain.handle("calendar-sources-list", () => preCallManager.listSources());
+    ipcMain.handle("calendar-source-add", (_e, source) => preCallManager.addSource(source));
+    ipcMain.handle("calendar-source-remove", (_e, id) => preCallManager.removeSource(id));
+    ipcMain.handle("calendar-refresh", async () => await preCallManager.refreshAll());
+    ipcMain.handle("calendar-upcoming", () => preCallManager.getUpcomingMeetings());
+    ipcMain.handle("precall-brief", async (_e, meeting) => {
+      try {
+        return await preCallManager.generateBrief(meeting, llmService);
+      } catch (e) {
+        logger.error("Pre-call brief failed", { error: e.message });
+        return `Brief generation failed: ${e.message}`;
+      }
+    });
+
+    // ── Output language (Nyx setting) ─────────────────────────────────
+    ipcMain.handle("get-output-language", () => process.env.OUTPUT_LANGUAGE || "English");
+    ipcMain.handle("set-output-language", (_e, lang) => {
+      const persisted = this.persistEnvUpdates({ OUTPUT_LANGUAGE: String(lang || "English") });
+      return persisted.length > 0;
+    });
+
+    // ── Nyx settings parity: invisibility / display / auto-launch ────
+    ipcMain.handle("set-invisibility-mode", (_e, mode) => {
+      const enabled = String(mode) !== "off";
+      const applied = windowManager.setContentProtectionEnabled(enabled);
+      this.persistEnvUpdates({ INVISIBILITY_MODE: enabled ? "on" : "off" });
+      return { success: true, enabled: applied };
+    });
+    ipcMain.handle("get-invisibility-mode", () =>
+      (process.env.INVISIBILITY_MODE || "on").toLowerCase() !== "off");
+
+    ipcMain.handle("set-preferred-display", (_e, displayId) => {
+      const ok = windowManager.moveToDisplay(displayId);
+      if (ok) this.persistEnvUpdates({ PREFERRED_DISPLAY_ID: String(displayId) });
+      return { success: ok };
+    });
+    ipcMain.handle("list-displays-for-settings", () => {
+      const { screen } = require("electron");
+      const primaryId = screen.getPrimaryDisplay().id;
+      return screen.getAllDisplays().map((d, i) => ({
+        id: d.id,
+        label: `Display ${i + 1} (${d.size.width}×${d.size.height})${d.id === primaryId ? " — primary" : ""}`,
+      }));
+    });
+
+    ipcMain.handle("set-auto-launch", (_e, enabled) => {
+      try {
+        const willLaunch = !!enabled;
+        app.setLoginItemSettings({ openAtLogin: willLaunch, args: ["--hidden"] });
+        this.persistEnvUpdates({ AUTO_LAUNCH: willLaunch ? "on" : "off" });
+        logger.info("Auto-launch updated", { openAtLogin: willLaunch });
+        return { success: true, enabled: willLaunch };
+      } catch (e) {
+        logger.error("Failed to set auto-launch", { error: e.message });
+        return { success: false, error: e.message };
+      }
+    });
+    ipcMain.handle("get-auto-launch", () => {
+      try {
+        return app.getLoginItemSettings().openAtLogin;
+      } catch (_) {
+        return String(process.env.AUTO_LAUNCH || "off").toLowerCase() === "on";
+      }
+    });
+
+    ipcMain.handle("get-app-version", () => ({
+      version: app.getVersion(),
+      electron: process.versions.electron,
+    }));
+
+    // Calendar auto-attend toggle (scheduler reads CALENDAR_AUTO_ATTEND each tick)
+    ipcMain.handle("set-calendar-auto-attend", (_e, enabled) => {
+      const on = !!enabled;
+      this.persistEnvUpdates({ CALENDAR_AUTO_ATTEND: on ? "true" : "false" });
+      return { success: true, enabled: on };
+    });
+    ipcMain.handle("get-calendar-auto-attend", () =>
+      String(process.env.CALENDAR_AUTO_ATTEND || "true").toLowerCase() !== "false");
+
+    // ── Editable keyboard shortcuts (Nyx Settings → Shortcuts) ────────
+    ipcMain.handle("get-shortcuts", () => {
+      const defaults = ApplicationController.DEFAULT_SHORTCUTS;
+      return Object.entries(defaults).map(([id, def]) => ({
+        id,
+        default: def,
+        accelerator: this.getShortcutAccelerator(id),
+        disabled: this.getShortcutAccelerator(id) === null,
+      }));
+    });
+    ipcMain.handle("set-shortcut", (_e, { id, accelerator }) => {
+      const actions = this.getShortcutActions();
+      if (!actions[id]) return { success: false, error: `Unknown shortcut: ${id}` };
+      const value = !accelerator || String(accelerator).trim().toLowerCase() === "disabled"
+        ? "disabled"
+        : String(accelerator).trim();
+      const persisted = this.persistEnvUpdates({ [`SHORTCUT_${id.toUpperCase()}`]: value });
+      // Re-register everything so the change applies immediately.
+      this.registerShortcutsFromSettings();
+      return { success: persisted.length > 0, accelerator: this.getShortcutAccelerator(id) };
+    });
+    ipcMain.handle("reset-shortcuts", () => {
+      const updates = {};
+      for (const id of Object.keys(ApplicationController.DEFAULT_SHORTCUTS)) {
+        updates[`SHORTCUT_${id.toUpperCase()}`] = "";
+      }
+      this.persistEnvUpdates(updates);
+      this.registerShortcutsFromSettings();
+      return { success: true };
+    });
+
+    // NVIDIA NIM key management (renamed from Gemini, legacy names preserved)
+    ipcMain.handle("set-llm-api-key", (event, apiKey) => {
+      llmService.updateApiKey(apiKey);
+      return llmService.getStats();
+    });
+
+    ipcMain.handle("get-llm-status", () => {
+      return llmService.getStats();
+    });
+
+    // Switch the active LLM backend at runtime ('nvidia' | 'gemini').
+    ipcMain.handle("set-llm-provider", (event, provider) => {
+      try {
+        return { success: true, stats: llmService.setProvider(provider) };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    });
+
+    ipcMain.handle("test-llm-connection", async () => {
       return await llmService.testConnection();
     });
 
-    ipcMain.handle("run-gemini-diagnostics", async () => {
+    ipcMain.handle("run-llm-diagnostics", async () => {
       try {
         const connectivity = await llmService.checkNetworkConnectivity();
         const apiTest = await llmService.testConnection();
-        
         return {
           success: true,
           connectivity,
@@ -711,7 +1280,6 @@ class ApplicationController {
       }
     });
 
-    // Settings handlers
     ipcMain.handle("show-settings", () => {
       windowManager.showSettings();
 
@@ -791,52 +1359,6 @@ class ApplicationController {
         return { success: true };
       } catch (e) {
         return { success: false, error: e.message };
-      }
-    });
-
-    // Detect an installed Whisper CLI across common locations.
-    ipcMain.handle("detect-whisper", async () => {
-      try {
-        const installer = this.getWhisperInstaller();
-        return await installer.detect();
-      } catch (e) {
-        logger.warn("Whisper detection failed", { error: e.message });
-        return { found: false, command: null, version: null, error: e.message };
-      }
-    });
-
-    // Install Whisper. Streams progress lines back via `webContents.send`
-    // so the renderer can paint them as they arrive.
-    ipcMain.handle("install-whisper", async (event) => {
-      try {
-        const installer = this.getWhisperInstaller();
-        const sender = event.sender;
-        const result = await installer.install({
-          onProgress: (line) => {
-            try { sender.send("install-progress", line); } catch (_) { /* ignore */ }
-          },
-        });
-        return result;
-      } catch (e) {
-        logger.error("Whisper install failed", { error: e.message });
-        return { ok: false, command: null, message: e.message, logs: "" };
-      }
-    });
-
-    // Download Whisper model. Streams progress lines back via `webContents.send`
-    ipcMain.handle("download-whisper-model", async (event, modelName) => {
-      try {
-        const installer = this.getWhisperInstaller();
-        const sender = event.sender;
-        const result = await installer.downloadModel(modelName || 'small', {
-          onProgress: (line) => {
-            try { sender.send("install-progress", line); } catch (_) { /* ignore */ }
-          },
-        });
-        return result;
-      } catch (e) {
-        logger.error("Whisper model download failed", { error: e.message });
-        return { ok: false, message: e.message, path: null };
       }
     });
 
@@ -942,6 +1464,99 @@ class ApplicationController {
         process.exit(1);
       }
     });
+  }
+
+  /**
+   * Nyx Ctrl+Enter: "Ask AI anything about your screen, audio, or chat".
+   * Captures the screen, sends it with the live transcript to the LLM, and
+   * streams the answer into the Live Insights card.
+   */
+  async screenAssist() {
+    try {
+      logger.info("Screen assist triggered (Ctrl+Enter)");
+      windowManager.broadcastToAllWindows("screen-assist-started", {});
+      windowManager.showLiveInsights();
+
+      const capture = await captureService.captureAndProcess();
+      if (!capture.imageBuffer || !capture.imageBuffer.length) {
+        windowManager.broadcastToAllWindows("live-action-result", { error: "Failed to capture screen" });
+        return;
+      }
+
+      const transcript = sessionLifecycle.getTranscriptText(6000);
+      const base64 = capture.imageBuffer.toString("base64");
+      const messages = [];
+      const custom = llmService.getActiveCustomPrompt();
+      if (custom) messages.push({ role: "system", content: custom });
+      messages.push({
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: transcript
+              ? `The user pressed Ctrl+Enter. Answer their on-screen problem. Recent conversation transcript for context:\n${transcript}\n\nAnalyze the attached screenshot and give a direct, complete answer.`
+              : "The user pressed Ctrl+Enter. Analyze the attached screenshot and give a direct, complete answer.",
+          },
+          { type: "image_url", image_url: { url: `data:${capture.mimeType || "image/png"};base64,${base64}` } },
+        ],
+      });
+
+      let full = "";
+      const answer = await llmService.chatCompletion(messages, {
+        onDelta: (d) => {
+          full += d;
+          windowManager.broadcastToAllWindows("live-action-delta", d);
+        },
+      });
+      sessionManager.addModelResponse(answer, { skill: this.activeSkill, screenAssist: true });
+      windowManager.broadcastToAllWindows("live-action-result", { ok: true });
+    } catch (error) {
+      logger.error("Screen assist failed", { error: error.message });
+      windowManager.broadcastToAllWindows("live-action-result", { error: error.message });
+    }
+  }
+
+  /**
+   * Nyx Ctrl+Shift+Enter: stealth "Get Answer" — analyzes the screen and
+   * streams the answer into the plain llm-response overlay (no insights card),
+   * for undetectable answers during invisibility mode.
+   */
+  async stealthAnswer() {
+    try {
+      logger.info("Stealth answer triggered (Ctrl+Shift+Enter)");
+      const capture = await captureService.captureAndProcess();
+      if (!capture.imageBuffer || !capture.imageBuffer.length) return;
+
+      windowManager.showLLMLoading();
+      const captureMeta = capture;
+      const base64 = captureMeta.imageBuffer.toString("base64");
+      const messages = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Analyze this screenshot and give a direct, complete answer with code in fenced blocks if relevant." },
+            { type: "image_url", image_url: { url: `data:${captureMeta.mimeType || "image/png"};base64,${base64}` } },
+          ],
+        },
+      ];
+
+      this._responseSeq = (this._responseSeq || 0) + 1;
+      const messageId = `stealth-${Date.now()}-${this._responseSeq}`;
+      windowManager.broadcastToAllWindows("transcription-llm-response-start", { messageId, skill: this.activeSkill });
+
+      let full = "";
+      const answer = await llmService.chatCompletion(messages, {
+        onDelta: (d) => {
+          full += d;
+          windowManager.broadcastToAllWindows("transcription-llm-response-chunk", { messageId, delta: d });
+        },
+      });
+      sessionManager.addModelResponse(answer, { skill: this.activeSkill, stealth: true });
+      windowManager.showLLMResponse(answer, { skill: this.activeSkill, stealth: true });
+    } catch (error) {
+      logger.error("Stealth answer failed", { error: error.message });
+      windowManager.hideLLMResponse();
+    }
   }
 
   toggleSpeechRecognition() {
@@ -1227,15 +1842,27 @@ class ApplicationController {
    * asked once the speaker has actually paused — this is what stops one spoken
    * line from producing two separate, slow answers.
    */
-  handleTranscriptionFragment(text) {
+  handleTranscriptionFragment(text, meta = {}) {
     const fragment = (text || "").trim();
     if (!fragment) {
       return;
     }
 
     // Route speech UI events according to the user's response-target setting.
-    sessionManager.addUserInput(fragment, 'speech');
+    sessionManager.addUserInput(fragment, meta.source === 'system' ? 'system-speech' : 'speech');
     this.sendToVoiceResponseWindows("transcription-received", { text: fragment });
+
+    // Live-session Listen mode: append to the meeting transcript and refresh
+    // dynamic insights while a session is active. System-audio fragments are
+    // tagged speaker='other' so notes distinguish who said what.
+    if (sessionLifecycle.isActive()) {
+      sessionLifecycle.addTranscriptEntry(fragment, {
+        source: meta.source === 'system' ? 'system' : 'speech',
+        speaker: meta.source === 'system' ? 'other' : 'user',
+      });
+      const insights = sessionLifecycle.detectDynamicInsights();
+      windowManager.broadcastToAllWindows("live-dynamic-insights", insights);
+    }
 
     this._utteranceBuffer = this._utteranceBuffer
       ? `${this._utteranceBuffer} ${fragment}`
@@ -1499,7 +2126,7 @@ class ApplicationController {
   }
 
   getVoiceResponseTarget() {
-    const configured = String(process.env.WHISPER_RESPONSE_TARGET || 'both').trim().toLowerCase();
+    const configured = String(process.env.VOICE_RESPONSE_TARGET || 'both').trim().toLowerCase();
     return ['chat', 'overlay', 'both'].includes(configured) ? configured : 'both';
   }
 
@@ -1570,19 +2197,6 @@ class ApplicationController {
     });
   }
 
-  getWhisperInstaller() {
-    if (!this._whisperInstaller) {
-      const WhisperInstaller = require("./src/core/whisper-installer");
-      const { app } = require("electron");
-      this._whisperInstaller = new WhisperInstaller({
-        cwd: process.cwd(),
-        dataDir: app.getPath("userData"),
-        platform: process.platform,
-      });
-    }
-    return this._whisperInstaller;
-  }
-
   getSettings() {
     // Surface every value the settings UI can edit, reading the live source
     // of truth (process.env) so the UI shows exactly what the running app is
@@ -1595,20 +2209,19 @@ class ApplicationController {
       selectedIcon: this.appIcon || "terminal",
       windowGap: windowManager.windowGap,
 
-      speechProvider: speechService.provider || "whisper",
-      azureKey: process.env.AZURE_SPEECH_KEY || "",
-      azureRegion: process.env.AZURE_SPEECH_REGION || "",
-      whisperCommand: process.env.WHISPER_COMMAND || "",
-      whisperModel: process.env.WHISPER_MODEL || "small",
-      whisperLanguage: process.env.WHISPER_LANGUAGE || "auto",
-      whisperDevice: process.env.WHISPER_DEVICE || "auto",
-      whisperCaptureMode: process.env.WHISPER_CAPTURE_MODE ||
-        (process.env.WHISPER_MANUAL_CAPTURE === "true" ? "manual" : "vad"),
-      whisperResponseTarget: process.env.WHISPER_RESPONSE_TARGET || "both",
-      whisperSegmentMs: process.env.WHISPER_SEGMENT_MS || "4000",
       geminiKey: process.env.GEMINI_API_KEY || "",
+      // Both AI providers ship; LLM_PROVIDER (env/.env) selects the active one.
+      // Transcription always runs on Gemini audio (NVIDIA NIM has no audio input).
+      nvidiaKey: process.env.NVIDIA_API_KEY || "",
+      nvidiaConfigured: !!process.env.NVIDIA_API_KEY,
+      geminiConfigured: !!process.env.GEMINI_API_KEY,
+      llmProvider: config.get("llm.provider") || "nvidia",
+      llmModel: config.get("llm.provider") === "gemini"
+        ? config.get("llm.gemini.model")
+        : config.get("llm.nvidia.model"),
+      outputLanguage: process.env.OUTPUT_LANGUAGE || "English",
+      meetingAudioLanguage: process.env.MEETING_AUDIO_LANGUAGE || "auto",
 
-      azureConfigured: !!process.env.AZURE_SPEECH_KEY && !!process.env.AZURE_SPEECH_REGION,
       speechAvailable: this.speechAvailable
     };
   }
@@ -1641,99 +2254,37 @@ class ApplicationController {
       }
 
       // ── Persist provider / API-key fields back to .env ──
-      // The settings UI is now the source of truth for these values.
-      // Writing to .env ensures they survive app restarts and are picked
-      // up the next time the app boots.
       const envUpdates = {};
-      if (settings.speechProvider === "azure" || settings.speechProvider === "whisper") {
-        envUpdates.SPEECH_PROVIDER = settings.speechProvider;
-      }
-      if (settings.azureKey !== undefined) {
-        envUpdates.AZURE_SPEECH_KEY = settings.azureKey;
-      }
-      if (settings.azureRegion !== undefined) {
-        envUpdates.AZURE_SPEECH_REGION = settings.azureRegion;
-      }
-      if (settings.whisperCommand !== undefined) {
-        envUpdates.WHISPER_COMMAND = settings.whisperCommand;
-      }
-      if (settings.whisperModel !== undefined) {
-        envUpdates.WHISPER_MODEL = settings.whisperModel;
-      }
-      if (settings.whisperLanguage !== undefined) {
-        envUpdates.WHISPER_LANGUAGE = settings.whisperLanguage;
-      }
-      if (["auto", "cpu", "cuda"].includes(settings.whisperDevice)) {
-        envUpdates.WHISPER_DEVICE = settings.whisperDevice;
-      }
-      if (["manual", "vad"].includes(settings.whisperCaptureMode)) {
-        envUpdates.WHISPER_CAPTURE_MODE = settings.whisperCaptureMode;
-      }
-      if (["chat", "overlay", "both"].includes(settings.whisperResponseTarget)) {
-        envUpdates.WHISPER_RESPONSE_TARGET = settings.whisperResponseTarget;
-      }
-      if (settings.whisperSegmentMs !== undefined) {
-        envUpdates.WHISPER_SEGMENT_MS = String(settings.whisperSegmentMs);
-      }
       if (settings.geminiKey !== undefined) {
         envUpdates.GEMINI_API_KEY = settings.geminiKey;
       }
-
-      // Capture the previous whisper command BEFORE persisting — persistEnvUpdates
-      // mutates process.env in place, so comparing afterwards would always read
-      // equal and skip the speech re-init below (the exact stale-mic-after-install
-      // bug the re-init guards against).
-      const prevWhisperCommand = process.env.WHISPER_COMMAND || '';
+      if (settings.nvidiaKey !== undefined && String(settings.nvidiaKey).trim() !== '') {
+        envUpdates.NVIDIA_API_KEY = settings.nvidiaKey;
+      }
+      if (settings.llmProvider === "nvidia" || settings.llmProvider === "gemini") {
+        envUpdates.LLM_PROVIDER = settings.llmProvider;
+      }
+      if (settings.outputLanguage !== undefined) {
+        envUpdates.OUTPUT_LANGUAGE = String(settings.outputLanguage);
+      }
+      if (settings.meetingAudioLanguage !== undefined) {
+        envUpdates.MEETING_AUDIO_LANGUAGE = String(settings.meetingAudioLanguage);
+      }
 
       const persistedKeys = this.persistEnvUpdates(envUpdates);
 
-      // If the Gemini key was just saved, reinitialize the LLM service
-      // so the new client picks up the key. Without this, the test-
-      // connection button in the onboarding wizard fails with
-      // "Service not initialized" because the client was first created
-      // at app startup, before any key was set.
-      if (settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined) {
+      // Reinitialize the LLM service when a key OR provider changes so the
+      // change takes effect immediately (onboarding + settings flows).
+      const keyOrProviderChanged =
+        (settings.geminiKey !== undefined && envUpdates.GEMINI_API_KEY !== undefined) ||
+        (settings.nvidiaKey !== undefined && envUpdates.NVIDIA_API_KEY !== undefined) ||
+        (settings.llmProvider !== undefined && envUpdates.LLM_PROVIDER !== undefined);
+      if (keyOrProviderChanged) {
         try {
           llmService.initializeClient();
-          logger.info("LLM service reinitialized after Gemini key update");
+          logger.info("LLM service reinitialized after key/provider update");
         } catch (e) {
-          logger.warn("Failed to reinitialize LLM service after Gemini key update", {
-            error: e.message
-          });
-        }
-      }
-
-      // Reinitialize speech service when provider OR whisper command
-      // changes. Without the second check, the install flow (which
-      // writes a new whisperCommand after install but keeps the same
-      // provider) would leave the speech service pointing at a stale
-      // (or non-existent) binary, and the main overlay's mic button
-      // would stay hidden / non-functional.
-      const providerChanged = settings.speechProvider && speechService.provider !== settings.speechProvider;
-      const whisperCommandChanged = settings.whisperCommand !== undefined &&
-        prevWhisperCommand !== String(settings.whisperCommand || '');
-      if (providerChanged || whisperCommandChanged) {
-        try {
-          speechService.initializeClient();
-          this.speechAvailable = speechService.isAvailable
-            ? speechService.isAvailable()
-            : false;
-          // Broadcast so any open window (settings, overlay, chat)
-          // can react immediately — especially the main overlay's
-          // mic button, which queries availability on load.
-          const { BrowserWindow } = require("electron");
-          BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) {
-              win.webContents.send("speech-availability", { available: this.speechAvailable });
-            }
-          });
-          logger.info('Speech service reinitialized after settings change', {
-            providerChanged,
-            whisperCommandChanged,
-            speechAvailable: this.speechAvailable,
-          });
-        } catch (e) {
-          logger.warn("Failed to reinitialize speech service after settings change", {
+          logger.warn("Failed to reinitialize LLM service after key/provider update", {
             error: e.message
           });
         }

@@ -1,29 +1,18 @@
-/* OpenCluely — humans.txt
-   https://opencluely.techycsr.dev/humans.txt
-*/
+/* TEAM */
 
-# humans.txt — credits the people behind OpenCluely.
+Developer & maintainer: devansh0703
+GitHub: https://github.com/devansh0703
+Project: https://github.com/devansh0703/Nyx
 
-# TEAM
+/* THANKS */
 
-  Developer & maintainer: TechyCSR
-  Site: https://techycsr.dev
-  GitHub: https://github.com/TechyCSR
+Original Nyx codebase by TechyCSR (Apache License 2.0)
+https://github.com/TechyCSR
 
-# SITE
+Electron, Node.js and the open source community.
 
-  Standards: HTML5, CSS, vanilla JavaScript
-  Components: Electron, Tailwind CSS
-  Components: PrismJS for syntax highlighting
-  AI: Google Gemini API
-  Speech-to-text: OpenAI Whisper, Azure Speech Services
+/* SITE */
 
-# THANKS
-
-  Open source community — for the libraries and inspiration that make this possible.
-  Early users — for the feedback that shaped the project.
-
-# NO TRACKING
-
-  No analytics, no telemetry, no third-party trackers on this site.
-  This page is the one place where we politely ask you to be tracked.
+Standards: HTML5, CSS3, JavaScript
+Components: Electron
+Software: VS Code

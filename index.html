@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>OpenCluely</title>
+    <title>Nyx</title>
     <link href="./dist/output.css" rel="stylesheet" />
     <link href="./src/styles/common.css" rel="stylesheet" />
     <style>
@@ -362,6 +362,14 @@
         <i class="fas fa-microphone"></i>
       </div>
       <div class="command-separator"></div>
+      <div class="command-item" id="liveInsightsButton" title="Live Insights (Ctrl+\\)">
+        <i class="fas fa-waveform-lines"></i>
+      </div>
+      <div class="command-separator"></div>
+      <div class="command-item" id="dashboardButton" title="Dashboard — notes, briefs, modes, knowledge">
+        <i class="fas fa-table-columns"></i>
+      </div>
+      <div class="command-separator"></div>
       <div class="command-item" id="skillIndicator">
         <i class="fas fa-brain"></i>
         <span>DSA</span>
@@ -447,11 +455,46 @@
             </td>
             <td>Open settings</td>
           </tr>
+          <tr>
+            <td>
+              <span class="kbd">Ctrl/Cmd</span>
+              + <span class="kbd">Enter</span>
+            </td>
+            <td>Ask AI about screen + conversation</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="kbd">Ctrl/Cmd</span>
+              + <span class="kbd">Shift</span>
+              + <span class="kbd">Enter</span>
+            </td>
+            <td>Stealth answer (Get Answer)</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="kbd">Ctrl/Cmd</span>
+              + <span class="kbd">R</span>
+            </td>
+            <td>Clear session context</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="kbd">Ctrl/Cmd</span>
+              + <span class="kbd">\</span>
+            </td>
+            <td>Hide/show Live Insights bar</td>
+          </tr>
+          <tr>
+            <td>
+              <span class="kbd">Tab</span> <span style="opacity:.7">(in Live Insights)</span>
+            </td>
+            <td>Answer first dynamic insight</td>
+          </tr>
         </tbody>
       </table>
       <div class="shortcuts-footer">
         <span>Tip: Alt+A also toggles interaction from anywhere.</span>
-        <a href="https://techycsr.dev" target="_blank" rel="noreferrer noopener">Made by @TechyCSR</a>
+        <a href="https://github.com/devansh0703/Nyx" target="_blank" rel="noreferrer noopener">Made by @devansh0703</a>
       </div>
     </div>
 

@@ -1,6 +1,6 @@
 {
-  "name": "OpenCluely — Invisible AI Interview Copilot",
-  "short_name": "OpenCluely",
+  "name": "Nyx — Invisible AI Interview Copilot",
+  "short_name": "Nyx",
   "description": "The free, open-source AI interview copilot that stays invisible to Zoom, Meet, Teams, Discord, and OBS screen sharing.",
   "id": "/",
   "start_url": "/",
@@ -50,11 +50,11 @@
       "sizes": "1200x630",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "OpenCluely — the invisible AI interview copilot"
+      "label": "Nyx — the invisible AI interview copilot"
     }
   ],
   "publisher": {
-    "name": "TechyCSR",
-    "url": "https://techycsr.dev"
+    "name": "devansh0703",
+    "url": "https://github.com/devansh0703"
   }
 }

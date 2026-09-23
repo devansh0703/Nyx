@@ -6,7 +6,7 @@ const os = require('os');
  * First-run detection and onboarding helper.
  *
  * Responsibilities:
- *   - Decide whether this is the user's first launch of OpenCluely
+ *   - Decide whether this is the user's first launch of Nyx
  *   - Auto-create a default `.env` from `env.example` if one is missing
  *   - Report whether a Gemini API key is configured (the only required key)
  *   - Persist a "first-run completed" sentinel so we don't nag on every launch
@@ -19,7 +19,7 @@ class FirstRunManager {
   constructor(options = {}) {
     this.cwd = options.cwd || process.cwd();
     this.envPath = options.envPath || path.join(this.cwd, '.env');
-    this.sentinelPath = options.sentinelPath || path.join(this.cwd, '.opencluely-firstrun-completed');
+    this.sentinelPath = options.sentinelPath || path.join(this.cwd, '.nyx-firstrun-completed');
     this.logger = options.logger || console;
   }
 
@@ -28,11 +28,24 @@ class FirstRunManager {
    * sentinel file, or .env exists but has no Gemini key.
    */
   needsOnboarding() {
-    if (!fs.existsSync(this.sentinelPath)) return true;
     if (!fs.existsSync(this.envPath)) return true;
     const content = this._readEnv();
+    // The LLM backend is NVIDIA NIM (NVIDIA_API_KEY, usually exported in
+    // ~/.bashrc). A bashrc-provided key counts as configured even when the
+    // .env has no key — the app reads process.env, which dotenv will not
+    // override once the key exists there.
+    const nvidia = (process.env.NVIDIA_API_KEY || (content.NVIDIA_API_KEY || '')).trim();
+    const nvidiaConfigured = !!nvidia && nvidia !== 'your_nvidia_api_key_here';
     const gemini = (content.GEMINI_API_KEY || '').trim();
-    return !gemini || gemini === 'your_gemini_api_key_here';
+    const geminiConfigured = !!gemini && gemini !== 'your_gemini_api_key_here';
+    // A configured LLM key means the user is set up. Self-heal a missing
+    // sentinel (installs that configured .env manually or predate the
+    // wizard) instead of re-showing onboarding on every launch.
+    if (nvidiaConfigured || geminiConfigured) {
+      if (!fs.existsSync(this.sentinelPath)) this.markCompleted();
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -80,12 +93,14 @@ class FirstRunManager {
   getStatus() {
     const env = this._readEnv();
     const gemini = (env.GEMINI_API_KEY || '').trim();
+    const nvidia = (process.env.NVIDIA_API_KEY || (env.NVIDIA_API_KEY || '')).trim();
+    const nvidiaConfigured = !!nvidia && nvidia !== 'your_nvidia_api_key_here';
     return {
       envExists: fs.existsSync(this.envPath),
       sentinelExists: fs.existsSync(this.sentinelPath),
       geminiConfigured: !!gemini && gemini !== 'your_gemini_api_key_here',
-      azureConfigured: !!(env.AZURE_SPEECH_KEY || '').trim() && !!(env.AZURE_SPEECH_REGION || '').trim(),
-      whisperConfigured: !!(env.WHISPER_COMMAND || '').trim(),
+      nvidiaConfigured,
+      llmConfigured: nvidiaConfigured || (!!gemini && gemini !== 'your_gemini_api_key_here'),
       needsOnboarding: this.needsOnboarding()
     };
   }
@@ -138,30 +153,31 @@ class FirstRunManager {
       } catch (_) { /* try next */ }
     }
     return [
-      '# OpenCluely configuration',
-      '# Add your Google Gemini API key below — the app picks it up immediately.',
-      '# Get a key from: https://aistudio.google.com/',
+      '# Nyx configuration',
+      '# LLM backend: NVIDIA NIM (build.nvidia.com). Export NVIDIA_API_KEY in',
+      '# your ~/.bashrc (recommended) or set it below — the app reads both.',
+      '# Get a key from: https://build.nvidia.com (free tier available).',
       '',
-      'GEMINI_API_KEY=your_gemini_api_key_here',
+      '# NVIDIA_API_KEY=your_nvidia_api_key_here',
       '',
-      '# Speech provider: "whisper" (local) or "azure" (cloud).',
-      '# WHISPER_COMMAND is auto-set to the project-local venv when you',
-      '# install Whisper through the onboarding wizard, so no PATH change',
-      '# or restart is needed.',
-      'SPEECH_PROVIDER=whisper',
-      'WHISPER_COMMAND=whisper',
-      '# WHISPER_MODEL_DIR is optional. Leave it unset and the app stores model',
-      '# weights in a stable app-data folder. Set an absolute path to override.',
-      '# WHISPER_MODEL_DIR=',
-      'WHISPER_MODEL=small',
-      'WHISPER_LANGUAGE=auto',
-      'WHISPER_DEVICE=auto',
-      'WHISPER_PYTHON=',
-      'WHISPER_CAPTURE_MODE=vad',
-      'WHISPER_RESPONSE_TARGET=both',
-      'WHISPER_MANUAL_MAX_MS=90000',
-      'WHISPER_GPU_IDLE_MS=60000',
-      'WHISPER_SEGMENT_MS=4000',
+      '# Output language for AI responses, notes and summaries.',
+      'OUTPUT_LANGUAGE=English',
+      '',
+      '# Meeting audio language used for transcription accuracy.',
+      'MEETING_AUDIO_LANGUAGE=auto',
+      '',
+      '# ── Nyx parity settings ──',
+      '# Invisibility: hide the overlay from screen shares (on|off; no-op on Linux).',
+      'INVISIBILITY_MODE=on',
+      '# Auto launch at login (on|off).',
+      'AUTO_LAUNCH=off',
+      '# Auto-start a listening session when a calendar meeting begins (true|false).',
+      'CALENDAR_AUTO_ATTEND=true',
+      '',
+      '# AI providers: NVIDIA NIM (text/vision) + Google Gemini (text/vision/audio).',
+      '# LLM_PROVIDER selects the chat backend: nvidia (default) or gemini.',
+      '# Voice transcription ALWAYS runs on Gemini audio (NVIDIA has no audio input).',
+      'LLM_PROVIDER=nvidia',
       ''
     ].join(os.EOL);
   }

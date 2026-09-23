@@ -47,10 +47,10 @@ jobs:
         run: npm ci
 
       # electron-builder reads `version` from package.json for artifact
-      # naming (e.g. OpenCluely-1.0.0-x64.dmg). When we build from a
-      # git tag (v1.0.7) the package.json still says 1.0.0 by default,
-      # so artifact names drift from the release tag. Sync them here.
-      # `npm pkg set` is cross-platform and doesn't touch git.
+      # naming (e.g. Nyx-Setup-1.2.0.exe). When we build from a git tag
+      # (v1.2.0) the package.json may lag behind, so artifact names drift
+      # from the release tag. Sync them here. `npm pkg set` is
+      # cross-platform and doesn't touch git.
       - name: Sync package.json version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -98,7 +98,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: opencluely-${{ matrix.os }}
+          name: nyx-${{ matrix.os }}
           path: ${{ matrix.artifact_glob }}
           if-no-files-found: warn
 
@@ -121,18 +121,23 @@ jobs:
           CURRENT_TAG="${GITHUB_REF_NAME}"
           REPO_URL="https://github.com/${{ github.repository }}"
 
-          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || true)
-          if [ -z "$PREV_TAG" ]; then
-            PREV_TAG=$(git tag --sort=-creatordate | grep -vx "${CURRENT_TAG}" | while read -r t; do
-              if git merge-base --is-ancestor "$t" "${CURRENT_TAG}" 2>/dev/null; then echo "$t"; break; fi
-            done | head -1)
-          fi
+          # NOTE: this step runs with `set -e -o pipefail`. When v* is the
+          # only tag (first release), `grep -vx` exits 1 and pipefail turns
+          # the whole pipeline failure into an exit — killing the step with
+          # no output. `|| true` inside the substitution swallows it; an
+          # empty PREV_TAG then legitimately means "Initial release".
+          PREV_TAG=$( { git tag --sort=-creatordate | grep -vx "${CURRENT_TAG}" | while read -r t; do
+            if git merge-base --is-ancestor "$t" "${CURRENT_TAG}" 2>/dev/null; then echo "$t"; break; fi
+          done | head -1; } || true )
 
           if [ -z "$PREV_TAG" ]; then
             RANGE=""
             RANGE_LABEL="Initial release"
           else
             RANGE="${PREV_TAG}..${CURRENT_TAG}"
+            # Backticks must be escaped: unescaped, bash treats them as
+            # command substitution and tries to EXECUTE "v1.2.0...v1.3.0"
+            # (exit 127 under set -e). This killed the v1.3.0 release job.
             RANGE_LABEL="[\`${PREV_TAG}...${CURRENT_TAG}\`](${REPO_URL}/compare/${PREV_TAG}...${CURRENT_TAG})"
           fi
 
@@ -165,7 +170,7 @@ jobs:
             if [ -n "$PREV_TAG" ]; then
               echo "This release includes **${COMMIT_COUNT} commits** since ${PREV_TAG}."
             else
-              echo "First release of OpenCluely — **${COMMIT_COUNT} commits**."
+              echo "First release of Nyx — **${COMMIT_COUNT} commits**."
             fi
             echo ""
             cat CHANGELOG_SECTION.md
@@ -179,27 +184,24 @@ jobs:
 
           | Platform | File | Notes |
           |---|---|---|
-          | **Windows** | `OpenCluely-Setup-*.exe` | NSIS installer — installs app + adds to Start Menu |
-          | **Linux** | `*.deb` | Debian/Ubuntu — auto-pulls system deps (Python, ffmpeg, GTK) |
+          | **Windows** | `Nyx-Setup-*.exe` | NSIS installer — installs app + adds to Start Menu |
+          | **Linux** | `nyx-*-amd64.deb` | Debian/Ubuntu — auto-pulls system deps (Python, ffmpeg, GTK) |
           | **Linux** | `*.AppImage` | Universal — no install, just `chmod +x` and run |
 
-          > **macOS:** no pre-built build is shipped. The app is unsigned/un-notarized, so macOS Gatekeeper blocks it as "damaged". Run OpenCluely from source instead:
+          > **macOS:** no pre-built build is shipped. The app is unsigned/un-notarized, so macOS Gatekeeper blocks it as "damaged". Run Nyx from source instead:
           > ```bash
-          > git clone https://github.com/TechyCSR/OpenCluely && cd OpenCluely && ./setup.sh
+          > git clone ${REPO_URL} && cd Nyx && ./setup.sh
           > ```
-          > Requires Node.js 18+. See the [README](https://github.com/TechyCSR/OpenCluely#quick-start) for details.
+          > Requires Node.js 18+. See the [README](${REPO_URL}#quick-start) for details.
 
           ## First Run
 
-          On first launch, OpenCluely opens the **Settings** window automatically for your **Google Gemini API key**.
-          Get a free key from [Google AI Studio](https://aistudio.google.com/). You can also edit `.env` directly.
+          On first launch, Nyx opens the **onboarding wizard** for your **NVIDIA API key** (the AI backend is NVIDIA NIM — Llama 3.2 11B Vision, with text + screen vision) and your **Gemini API key** (alternate backend + voice transcription via gemini-2.5-flash-lite).
+          Get a free NVIDIA key from [build.nvidia.com](https://build.nvidia.com/) and a Gemini key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). You can also export `NVIDIA_API_KEY` / `GEMINI_API_KEY` in your shell or edit `.env` directly.
 
-          ## Optional: Local Whisper (offline speech)
+          ## Voice Input
 
-          Install **Python 3.10+** and **ffmpeg**, then run:
-          ```bash
-          ./setup.sh --skip-install-system-deps
-          ```
+          Audio transcription runs on **Gemini** — just the API key is needed, nothing to install locally.
 
           ## Checksums
 
@@ -234,9 +236,9 @@ jobs:
           #   - Source archives (GitHub auto-generates these from the tag)
           #
           # The order below is the order files appear in the release page.
-          find artifacts -type f -name 'OpenCluely-Setup-*.exe' \
+          find artifacts -type f -name 'Nyx-Setup-*.exe' \
             -exec cp -v {} release/ \;
-          find artifacts -type f -name 'opencluely_*_amd64.deb' \
+          find artifacts -type f -name 'nyx-*-amd64.deb' \
             -exec cp -v {} release/ \;
           find artifacts -type f -name '*.AppImage' \
             -exec cp -v {} release/ \;
@@ -253,7 +255,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: OpenCluely ${{ github.ref_name }}
+          name: Nyx ${{ github.ref_name }}
           draft: false
           prerelease: false
           body_path: RELEASE_BODY.md

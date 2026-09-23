@@ -354,124 +354,93 @@
                 <div class="settings-section-content">
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Speech Provider</div>
-                            <div class="settings-item-description">Choose Azure Speech or a local OpenAI Whisper CLI</div>
-                        </div>
-                        <select class="input-field" id="speechProvider">
-                            <option value="azure">Azure Speech</option>
-                            <option value="whisper">Local Whisper</option>
-                        </select>
-                    </div>
-
-                    <!-- Azure fields (shown only when Azure is selected) -->
-                    <div id="azureFields" class="settings-group">
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Azure Speech Key</div>
-                                <div class="settings-item-description">Your Azure Cognitive Services API key</div>
-                            </div>
-                            <input type="password" class="input-field" id="azureKey" placeholder="Enter your Azure key">
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Azure Region</div>
-                                <div class="settings-item-description">Your Azure service region</div>
-                            </div>
-                            <input type="text" class="input-field" id="azureRegion" placeholder="e.g. eastus">
+                            <div class="settings-item-label">Voice transcription</div>
+                            <div class="settings-item-description">Runs on Gemini (gemini-3.5-flash-lite) using the GEMINI_API_KEY above — no extra key or install needed.</div>
                         </div>
                     </div>
 
-                    <!-- Whisper fields (shown only when Whisper is selected) -->
-                    <div id="whisperFields" class="settings-group">
-                        <div class="settings-item">
-                            <div class="settings-stack">
-                                <div>
-                                    <div class="settings-item-label">Whisper Command</div>
-                                    <div class="settings-item-description">CLI command for local Whisper, such as <code>whisper</code> or <code>python3 -m whisper</code></div>
-                                </div>
-                                <input type="text" class="input-field" id="whisperCommand" placeholder="whisper" style="max-width: 100%;">
-                            </div>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Whisper Model</div>
-                                <div class="settings-item-description">Local model name used by the Whisper CLI</div>
-                            </div>
-                            <input type="text" class="input-field" id="whisperModel" placeholder="small">
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Whisper Language</div>
-                                <div class="settings-item-description">Language code or auto-detection for local transcription</div>
-                            </div>
-                            <input type="text" class="input-field" id="whisperLanguage" placeholder="auto">
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Compute Device</div>
-                                <div class="settings-item-description">Automatically use CUDA when available, or force CPU/GPU</div>
-                            </div>
-                            <select class="input-field" id="whisperDevice">
-                                <option value="auto">Auto</option>
-                                <option value="cpu">CPU</option>
-                                <option value="cuda">CUDA</option>
-                            </select>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Capture Mode</div>
-                                <div class="settings-item-description">Manual records until you press stop; VAD detects natural pauses</div>
-                            </div>
-                            <select class="input-field" id="whisperCaptureMode">
-                                <option value="vad">Automatic (VAD)</option>
-                                <option value="manual">Manual start/stop</option>
-                            </select>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Voice Response Target</div>
-                                <div class="settings-item-description">Choose where answers generated from speech are displayed</div>
-                            </div>
-                            <select class="input-field" id="whisperResponseTarget">
-                                <option value="both">Chat and overlay</option>
-                                <option value="chat">Chat only</option>
-                                <option value="overlay">Overlay only</option>
-                            </select>
-                        </div>
-                        <div class="settings-item">
-                            <div>
-                                <div class="settings-item-label">Whisper Segment Length</div>
-                                <div class="settings-item-description">Chunk size in milliseconds for local transcription</div>
-                            </div>
-                            <input type="number" class="input-field" id="whisperSegmentMs" placeholder="4000" min="2000" step="500">
-                        </div>
-                        <div class="settings-note">
-                            Local Whisper runs on this machine and needs a Whisper CLI installed. These settings apply immediately for the current app session and are also written back to <code>.env</code> so they persist across restarts.
-                        </div>
-                    </div>
-
-                    <div id="azureFieldsNote" class="settings-note">
-                        Azure credentials apply immediately and are also written back to <code>.env</code> so they persist across restarts.
+                    <div class="settings-note">
+                        Audio transcription runs on Google Gemini. NVIDIA has no audio input, so Gemini handles all voice input.
                     </div>
                 </div>
             </div>
-            
+
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-robot"></i>
-                    Gemini Settings
+                    AI Model (NVIDIA NIM / Google Gemini)
                 </div>
                 <div class="settings-section-content">
                     <div class="settings-item">
                         <div>
-                            <div class="settings-item-label">Google API Key</div>
-                            <div class="settings-item-description">Your Google API key for Gemini models</div>
+                            <div class="settings-item-label">LLM Provider</div>
+                            <div class="settings-item-description">NVIDIA NIM (Llama 3.2 11B Vision) or Google Gemini (flash-lite, ~15 RPM free tier)</div>
                         </div>
-                        <input type="password" class="input-field" id="geminiKey" placeholder="Enter your Google API key">
+                        <select class="input-field" id="llmProvider" style="width:170px">
+                            <option value="nvidia">NVIDIA NIM</option>
+                            <option value="gemini">Google Gemini</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">NVIDIA API Key</div>
+                            <div class="settings-item-description">Key from build.nvidia.com — usually already exported in ~/.bashrc as NVIDIA_API_KEY. Model: llama-3.2-11b-vision-instruct</div>
+                        </div>
+                        <input type="password" class="input-field" id="nvidiaKey" placeholder="nvapi-… (leave as-is if set in bashrc)">
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Gemini API Key</div>
+                            <div class="settings-item-description">Key from aistudio.google.com/apikey — usually already exported in ~/.bashrc as GEMINI_API_KEY. Model: gemini-3.5-flash-lite (multimodal)</div>
+                        </div>
+                        <input type="password" class="input-field" id="geminiKey" placeholder="AIza… (leave as-is if set in bashrc)">
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Test Connection</div>
+                            <div class="settings-item-description">Verify the active provider responds with your key</div>
+                        </div>
+                        <button class="input-field" id="btnTestLlm" style="cursor:pointer;background:#1c1c22;color:#e9e9ee">Test</button>
+                    </div>
+                    <div id="llmTestResult" class="settings-note" style="display:none"></div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <i class="fas fa-language"></i>
+                    Language Settings
+                </div>
+                <div class="settings-section-content">
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Output Language</div>
+                            <div class="settings-item-description">Language for AI responses, notes, summaries and action items</div>
+                        </div>
+                        <select class="input-field" id="outputLanguage" style="width:150px">
+                            <option>English</option><option>Chinese</option><option>Spanish</option><option>Hindi</option>
+                            <option>Arabic</option><option>French</option><option>German</option><option>Japanese</option>
+                            <option>Portuguese</option><option>Russian</option><option>Korean</option><option>Italian</option>
+                            <option>Dutch</option><option>Polish</option><option>Turkish</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Meeting Audio Language</div>
+                            <div class="settings-item-description">Language spoken in your meetings (transcription accuracy)</div>
+                        </div>
+                        <select class="input-field" id="meetingAudioLanguage" style="width:150px">
+                            <option value="auto">Auto-detect</option><option value="en">English</option><option value="zh">Chinese</option>
+                            <option value="es">Spanish</option><option value="hi">Hindi</option><option value="ar">Arabic</option>
+                            <option value="fr">French</option><option value="de">German</option><option value="ja">Japanese</option>
+                            <option value="pt">Portuguese</option><option value="ru">Russian</option><option value="ko">Korean</option>
+                            <option value="it">Italian</option><option value="nl">Dutch</option><option value="pl">Polish</option>
+                            <option value="tr">Turkish</option>
+                        </select>
                     </div>
                 </div>
             </div>
-            
+
             <div class="settings-section">
                 <div class="settings-section-title">
                     <i class="fas fa-window-maximize"></i>
@@ -484,6 +453,84 @@
                             <div class="settings-item-description">Gap between bound windows (in pixels)</div>
                         </div>
                         <input type="number" class="input-field" id="windowGap" placeholder="20" min="0" max="100">
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Stealth Icon</div>
+                            <div class="settings-item-description">Disguise the app icon and title in the dock/taskbar</div>
+                        </div>
+                        <div id="iconGrid" style="display:flex;gap:8px"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <i class="fas fa-keyboard"></i>
+                    Keyboard Shortcuts
+                    <button class="input-field" id="btnResetShortcuts" style="width:auto;padding:4px 10px;margin-left:auto;font-size:11px;cursor:pointer">Reset all</button>
+                </div>
+                <div class="settings-section-content">
+                    <div id="shortcutList"></div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">
+                    <i class="fas fa-eye-slash"></i>
+                    Assistant Features
+                </div>
+                <div class="settings-section-content">
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Invisibility</div>
+                            <div class="settings-item-description">Hide the overlay from screen shares and recordings (macOS/Windows only)</div>
+                        </div>
+                        <select class="input-field" id="invisibilityMode" style="width:150px">
+                            <option value="on">Invisible</option>
+                            <option value="off">Visible</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Change Display</div>
+                            <div class="settings-item-description">Which monitor the overlay appears on</div>
+                        </div>
+                        <select class="input-field" id="preferredDisplay" style="width:150px"></select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Auto Launch</div>
+                            <div class="settings-item-description">Start Nyx automatically when you log in</div>
+                        </div>
+                        <select class="input-field" id="autoLaunch" style="width:150px">
+                            <option value="on">Enabled</option>
+                            <option value="off">Disabled</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Calendar Auto-Attend</div>
+                            <div class="settings-item-description">Automatically start a listening session when a calendar meeting begins</div>
+                        </div>
+                        <select class="input-field" id="calendarAutoAttend" style="width:150px">
+                            <option value="on">Enabled</option>
+                            <option value="off">Disabled</option>
+                        </select>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">Learn how to use Nyx</div>
+                            <div class="settings-item-description">Open the interactive guide in your browser</div>
+                        </div>
+                        <button class="input-field" id="btnTutorial" style="width:150px;cursor:pointer">Open guide</button>
+                    </div>
+                    <div class="settings-item">
+                        <div>
+                            <div class="settings-item-label">App Version</div>
+                            <div class="settings-item-description" id="appVersionText">Checking…</div>
+                        </div>
+                        <span class="input-field" id="appVersion" style="width:150px;text-align:center">—</span>
                     </div>
                 </div>
             </div>

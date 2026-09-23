@@ -4,16 +4,16 @@ const os = require('os');
 class ConfigManager {
   constructor() {
     this.env = process.env.NODE_ENV || 'development';
-    this.appDataDir = path.join(os.homedir(), '.OpenCluely');
+    this.appDataDir = path.join(os.homedir(), '.Nyx');
     this.loadConfiguration();
   }
 
   loadConfiguration() {
     this.config = {
       app: {
-        name: 'OpenCluely',
+        name: 'Nyx',
         version: '1.0.0',
-        processTitle: 'OpenCluely',
+        processTitle: 'Nyx',
         dataDir: this.appDataDir,
         isDevelopment: this.env === 'development',
         isProduction: this.env === 'production'
@@ -39,55 +39,52 @@ class ConfigManager {
       },
 
       llm: {
-        gemini: {
-          model: 'gemini-3.1-flash-lite',
-          fallbackModels: ['gemini-2.5-flash-lite', 'gemini-3.5-flash'],
+        // Active provider: 'nvidia' (default) or 'gemini'. Override with LLM_PROVIDER.
+        // Both are multimodal (text + image) chat backends.
+        provider: process.env.LLM_PROVIDER === 'gemini' ? 'gemini' : 'nvidia',
+
+        // NVIDIA NIM (build.nvidia.com) — OpenAI-compatible chat completions.
+        // Auth uses NVIDIA_API_KEY which the user exports in ~/.bashrc.
+        nvidia: {
+          model: 'meta/llama-3.2-11b-vision-instruct',
+          fallbackModels: [],
           maxRetries: 3,
-          timeout: 30000,
+          timeout: 90000, // NIM models can stream slowly; give them room
           fallbackEnabled: true,
-          enableFallbackMethod: true,
           generation: {
             temperature: 0.7,
-            topK: 32,
             topP: 0.9,
-            maxOutputTokens: 4096,
-            thinkingConfig: { thinkingBudget: 0 }
+            maxOutputTokens: 4096
+          }
+        },
+
+        // Google Gemini (generativelanguage.googleapis.com v1beta).
+        // Auth uses GEMINI_API_KEY (free tier ≈ 15 RPM on flash-lite).
+        // 'gemini-2.5-flash-lite' is no longer served to new keys; the API
+        // directs new users to 3.5 flash-lite. Override with GEMINI_MODEL.
+        gemini: {
+          model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+          maxRetries: 3,
+          timeout: 60000,
+          fallbackEnabled: true,
+          // Free-tier safety: serialize requests and keep ≈13 RPM so we
+          // never trip the 15 RPM ceiling even when the app fires bursts.
+          minRequestIntervalMs: 4600,
+          generation: {
+            temperature: 0.7,
+            topP: 0.95,
+            maxOutputTokens: 8192
           }
         }
       },
 
       speech: {
-        provider: 'azure',
-        azure: {
-          language: 'en-US',
-          enableDictation: true,
-          enableAudioLogging: false,
-          outputFormat: 'detailed'
-        },
-        whisper: {
-          model: 'small',
+        // Voice transcription runs entirely on Gemini audio — no local
+        // Whisper, no Azure. The VAD/mic pipeline feeds WAV segments here.
+        provider: 'gemini',
+        gemini: {
           language: 'auto',
-          // segmentMs is the legacy fixed-window size and now acts as the
-          // hard upper bound for a single utterance when VAD is enabled.
-          segmentMs: 4000,
-          // Voice-activity-detection driven segmentation. Instead of cutting
-          // audio on a blind timer (which splits sentences mid-word), we flush
-          // a segment when the speaker pauses. This makes transcription align
-          // with natural utterance boundaries.
-          vadEnabled: true,
-          // Trailing silence (ms) that ends an utterance and triggers a flush.
-          silenceHangoverMs: 700,
-          // Minimum accumulated speech (ms) before a pause counts as an
-          // utterance — guards against coughs/clicks producing empty flushes.
-          minUtteranceMs: 350,
-          // Hard cap (ms): force-flush a long monologue even without a pause.
-          maxUtteranceMs: 15000,
-          // Pre-roll (ms) of audio kept before speech onset so the first
-          // syllable isn't clipped when we start capturing.
-          preRollMs: 300,
-          // Absolute RMS energy floor (normalized 0..1). Energy below this is
-          // always treated as silence regardless of the adaptive noise floor.
-          vadEnergyFloor: 0.008
+          minRequestIntervalMs: 4600
         }
       },
 

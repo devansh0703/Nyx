@@ -17,7 +17,7 @@ class MainWindowUI {
         this.isRecording = false;
         this.speechAvailable = false; // track availability
         this._popoverHideTimeout = null;
-        // Renderer-side audio capture state (used for Whisper on Windows)
+        // Renderer-side audio capture state (voice transcription via Gemini)
         this._audioContext = null;
         this._mediaStream = null;
         this._scriptNode = null;
@@ -273,6 +273,10 @@ class MainWindowUI {
     this.infoButton = document.getElementById('infoButton');
     this.shortcutsPopover = document.getElementById('shortcutsPopover');
 
+        // Nyx-parity toolbar buttons
+        this.liveInsightsButton = document.getElementById('liveInsightsButton');
+        this.dashboardButton = document.getElementById('dashboardButton');
+
         // NEW: Screenshot button is the first .command-item without id
         const commandItems = document.querySelectorAll('.command-item');
         this.screenshotButton = commandItems && commandItems[0];
@@ -287,6 +291,22 @@ class MainWindowUI {
                 window.electronAPI.takeScreenshot();
             }
         });
+
+        // Live Insights toggle (Nyx command bar widget)
+        if (this.liveInsightsButton) {
+            this.liveInsightsButton.addEventListener('click', () => {
+                if (!this.isInteractive) return;
+                window.electronAPI.toggleLiveInsightsWindow();
+            });
+        }
+
+        // Dashboard button (notes / briefs / modes / knowledge)
+        if (this.dashboardButton) {
+            this.dashboardButton.addEventListener('click', () => {
+                if (!this.isInteractive) return;
+                window.electronAPI.showDashboardWindow();
+            });
+        }
 
         // Skill indicator click handler toggles DSA skill
         this.skillIndicator.addEventListener('click', () => {
@@ -646,7 +666,7 @@ class MainWindowUI {
         if (this.micButton) {
             this.micButton.classList.add('recording');
         }
-        // On Windows and macOS, Whisper audio is captured here in the renderer
+        // On Windows and macOS, mic audio is captured here in the renderer
         // (Web Audio API) rather than the main process: Windows lacks sox/rec/
         // arecord, and macOS avoids an unbundled Homebrew `sox`. Must match the
         // main process's useRendererCapture gate (speech.service.js). Linux uses
@@ -673,7 +693,7 @@ class MainWindowUI {
 
     /**
      * Capture microphone audio in the renderer using the Web Audio API.
-     * This is used for Whisper on Windows where node-record-lpcm16's sox/rec
+     * This is used on Windows where node-record-lpcm16.s sox/rec
      * dependencies are unavailable.
      */
     async _startRendererAudioCapture() {
@@ -1174,7 +1194,7 @@ class MainWindowUI {
             document.body.removeChild(menu);
         });
 
-        const quitOption = this.createMenuItem('Quit OpenCluely', 'fa-power-off', () => {
+        const quitOption = this.createMenuItem('Quit Nyx', 'fa-power-off', () => {
             if (window.electronAPI && window.electronAPI.quit) {
                 window.electronAPI.quit();
             }

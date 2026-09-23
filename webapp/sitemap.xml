@@ -4,16 +4,16 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"
         xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
   <url>
-    <loc>https://opencluely.techycsr.dev/</loc>
+    <loc>https://nyx.devansh0703.dev/</loc>
     <lastmod>2026-07-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
-      <image:loc>https://opencluely.techycsr.dev/og-image.png</image:loc>
-      <image:title>OpenCluely — Invisible AI Interview Copilot</image:title>
+      <image:loc>https://nyx.devansh0703.dev/og-image.png</image:loc>
+      <image:title>Nyx — Invisible AI Interview Copilot</image:title>
       <image:caption>The free, open-source AI interview copilot that stays invisible to Zoom, Meet, Teams, Discord, and OBS screen sharing.</image:caption>
     </image:image>
-    <xhtml:link rel="alternate" hreflang="en" href="https://opencluely.techycsr.dev/" />
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://opencluely.techycsr.dev/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://nyx.devansh0703.dev/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://nyx.devansh0703.dev/" />
   </url>
 </urlset>

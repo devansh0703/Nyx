@@ -6,21 +6,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get DOM elements
     const closeButton = document.getElementById('closeButton');
     const quitButton = document.getElementById('quitButton');
-    const speechProviderSelect = document.getElementById('speechProvider');
-    const azureKeyInput = document.getElementById('azureKey');
-    const azureRegionInput = document.getElementById('azureRegion');
-    const whisperCommandInput = document.getElementById('whisperCommand');
-    const whisperModelInput = document.getElementById('whisperModel');
-    const whisperLanguageInput = document.getElementById('whisperLanguage');
-    const whisperDeviceSelect = document.getElementById('whisperDevice');
-    const whisperCaptureModeSelect = document.getElementById('whisperCaptureMode');
-    const whisperResponseTargetSelect = document.getElementById('whisperResponseTarget');
-    const whisperSegmentMsInput = document.getElementById('whisperSegmentMs');
     const geminiKeyInput = document.getElementById('geminiKey');
+    const nvidiaKeyInput = document.getElementById('nvidiaKey');
+    const llmProviderSelect = document.getElementById('llmProvider');
+    const outputLanguageSelect = document.getElementById('outputLanguage');
+    const meetingAudioLanguageSelect = document.getElementById('meetingAudioLanguage');
+    const btnTestLlm = document.getElementById('btnTestLlm');
+    const llmTestResult = document.getElementById('llmTestResult');
     const windowGapInput = document.getElementById('windowGap');
     const codingLanguageSelect = document.getElementById('codingLanguage');
     const activeSkillSelect = document.getElementById('activeSkill');
     const iconGrid = document.getElementById('iconGrid');
+
+    // ── Nyx parity: features section elements ──
+    const invisibilitySelect = document.getElementById('invisibilityMode');
+    const preferredDisplaySelect = document.getElementById('preferredDisplay');
+    const autoLaunchSelect = document.getElementById('autoLaunch');
+    const calendarAutoAttendSelect = document.getElementById('calendarAutoAttend');
+    const btnTutorial = document.getElementById('btnTutorial');
+    const appVersionEl = document.getElementById('appVersion');
+    const appVersionText = document.getElementById('appVersionText');
 
     // Check if window.api exists
     if (!window.api) {
@@ -74,20 +79,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to load settings into UI
     const loadSettingsIntoUI = (settings) => {
-        if (settings.speechProvider && speechProviderSelect) speechProviderSelect.value = settings.speechProvider;
         // Always set the input value, even if empty, so the user sees what's
-        // currently configured (including env-derived defaults). Previously
-        // empty strings were skipped which left stale UI values.
-        if (azureKeyInput) azureKeyInput.value = settings.azureKey || '';
-        if (azureRegionInput) azureRegionInput.value = settings.azureRegion || '';
-        if (whisperCommandInput) whisperCommandInput.value = settings.whisperCommand || '';
-        if (whisperModelInput) whisperModelInput.value = settings.whisperModel || '';
-        if (whisperLanguageInput) whisperLanguageInput.value = settings.whisperLanguage || '';
-        if (whisperDeviceSelect) whisperDeviceSelect.value = settings.whisperDevice || 'auto';
-        if (whisperCaptureModeSelect) whisperCaptureModeSelect.value = settings.whisperCaptureMode || 'vad';
-        if (whisperResponseTargetSelect) whisperResponseTargetSelect.value = settings.whisperResponseTarget || 'both';
-        if (whisperSegmentMsInput) whisperSegmentMsInput.value = settings.whisperSegmentMs || '';
+        // currently configured (including env-derived defaults).
         if (geminiKeyInput) geminiKeyInput.value = settings.geminiKey || '';
+        if (nvidiaKeyInput) nvidiaKeyInput.value = settings.nvidiaKey || '';
+        if (llmProviderSelect) llmProviderSelect.value = settings.llmProvider || 'nvidia';
+        if (outputLanguageSelect) outputLanguageSelect.value = settings.outputLanguage || 'English';
+        if (meetingAudioLanguageSelect) meetingAudioLanguageSelect.value = settings.meetingAudioLanguage || 'auto';
         if (windowGapInput) windowGapInput.value = settings.windowGap || '';
 
         // Set C++ as default if no coding language is specified
@@ -96,6 +94,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (settings.activeSkill && activeSkillSelect) activeSkillSelect.value = settings.activeSkill;
+
+        // Nyx parity feature toggles (loaded async from main below)
+        if (invisibilitySelect) {
+            window.electronAPI.getInvisibilityMode().then(on => {
+                invisibilitySelect.value = on ? 'on' : 'off';
+            }).catch(() => {});
+        }
+        if (autoLaunchSelect) {
+            window.electronAPI.getAutoLaunch().then(on => {
+                autoLaunchSelect.value = on ? 'on' : 'off';
+            }).catch(() => {});
+        }
+        if (calendarAutoAttendSelect) {
+            window.electronAPI.getCalendarAutoAttend().then(on => {
+                calendarAutoAttendSelect.value = on ? 'on' : 'off';
+            }).catch(() => {});
+        }
+        populateDisplays();
+        loadAppVersion();
 
         // Handle icon selection
         const selectedIcon = settings.selectedIcon || settings.appIcon;
@@ -117,7 +134,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.api.receive('load-settings', (settings) => {
         loadSettingsIntoUI(settings);
     });
-
     // Listen for settings window shown event
     if (window.electronAPI && window.electronAPI.receive) {
         window.electronAPI.receive('settings-window-shown', () => {
@@ -136,17 +152,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save settings helper function
     const saveSettings = () => {
         const settings = {};
-        if (speechProviderSelect) settings.speechProvider = speechProviderSelect.value;
-        if (azureKeyInput) settings.azureKey = azureKeyInput.value;
-        if (azureRegionInput) settings.azureRegion = azureRegionInput.value;
-        if (whisperCommandInput) settings.whisperCommand = whisperCommandInput.value;
-        if (whisperModelInput) settings.whisperModel = whisperModelInput.value;
-        if (whisperLanguageInput) settings.whisperLanguage = whisperLanguageInput.value;
-        if (whisperDeviceSelect) settings.whisperDevice = whisperDeviceSelect.value;
-        if (whisperCaptureModeSelect) settings.whisperCaptureMode = whisperCaptureModeSelect.value;
-        if (whisperResponseTargetSelect) settings.whisperResponseTarget = whisperResponseTargetSelect.value;
-        if (whisperSegmentMsInput) settings.whisperSegmentMs = whisperSegmentMsInput.value;
         if (geminiKeyInput) settings.geminiKey = geminiKeyInput.value;
+        if (nvidiaKeyInput) settings.nvidiaKey = nvidiaKeyInput.value;
+        if (llmProviderSelect) settings.llmProvider = llmProviderSelect.value;
+        if (outputLanguageSelect) settings.outputLanguage = outputLanguageSelect.value;
+        if (meetingAudioLanguageSelect) settings.meetingAudioLanguage = meetingAudioLanguageSelect.value;
         if (windowGapInput) settings.windowGap = windowGapInput.value;
         if (codingLanguageSelect) settings.codingLanguage = codingLanguageSelect.value;
         if (activeSkillSelect) settings.activeSkill = activeSkillSelect.value;
@@ -155,47 +165,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const updateSpeechFieldStates = () => {
-        const provider = speechProviderSelect ? speechProviderSelect.value : 'azure';
-
-        // Show/hide provider-specific field groups instead of just disabling
-        // them. This keeps the settings UI clean — only the relevant fields
-        // for the selected provider are visible.
-        const azureGroup = document.getElementById('azureFields');
-        const whisperGroup = document.getElementById('whisperFields');
-        const azureNote = document.getElementById('azureFieldsNote');
-
-        if (azureGroup) {
-            azureGroup.style.display = provider === 'azure' ? '' : 'none';
-        }
-        if (whisperGroup) {
-            whisperGroup.style.display = provider === 'whisper' ? '' : 'none';
-        }
-        if (azureNote) {
-            azureNote.style.display = provider === 'azure' ? '' : 'none';
-        }
-
-        // Also toggle disabled attribute for any leftover direct field refs
-        [azureKeyInput, azureRegionInput].forEach(input => {
-            if (input) input.disabled = provider !== 'azure';
-        });
-        [whisperCommandInput, whisperModelInput, whisperLanguageInput, whisperDeviceSelect,
-            whisperCaptureModeSelect, whisperResponseTargetSelect, whisperSegmentMsInput].forEach(input => {
-            if (input) input.disabled = provider !== 'whisper';
-        });
+        // Transcription is Gemini-only now — no key fields to toggle.
     };
 
     // Add event listeners for all inputs
     const inputs = [
-        azureKeyInput,
-        azureRegionInput,
-        whisperCommandInput,
-        whisperModelInput,
-        whisperLanguageInput,
-        whisperDeviceSelect,
-        whisperCaptureModeSelect,
-        whisperResponseTargetSelect,
-        whisperSegmentMsInput,
         geminiKeyInput,
+        nvidiaKeyInput,
+        llmProviderSelect,
         windowGapInput
     ];
 
@@ -206,9 +183,172 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    if (speechProviderSelect) {
-        speechProviderSelect.addEventListener('change', () => {
-            updateSpeechFieldStates();
+    [outputLanguageSelect, meetingAudioLanguageSelect].forEach(input => {
+        if (input) input.addEventListener('change', saveSettings);
+    });
+
+    // ── Nyx parity feature handlers ──
+    if (invisibilitySelect) {
+        invisibilitySelect.addEventListener('change', async () => {
+            try {
+                await window.electronAPI.setInvisibilityMode(invisibilitySelect.value);
+            } catch (e) { console.error('Invisibility toggle failed:', e); }
+        });
+    }
+    if (preferredDisplaySelect) {
+        preferredDisplaySelect.addEventListener('change', async () => {
+            try {
+                if (preferredDisplaySelect.value) {
+                    await window.electronAPI.setPreferredDisplay(preferredDisplaySelect.value);
+                }
+            } catch (e) { console.error('Display change failed:', e); }
+        });
+    }
+    if (autoLaunchSelect) {
+        autoLaunchSelect.addEventListener('change', async () => {
+            try {
+                await window.electronAPI.setAutoLaunch(autoLaunchSelect.value === 'on');
+            } catch (e) { console.error('Auto-launch toggle failed:', e); }
+        });
+    }
+    if (calendarAutoAttendSelect) {
+        calendarAutoAttendSelect.addEventListener('change', async () => {
+            try {
+                await window.electronAPI.setCalendarAutoAttend(calendarAutoAttendSelect.value === 'on');
+            } catch (e) { console.error('Calendar auto-attend toggle failed:', e); }
+        });
+    }
+    if (btnTutorial) {
+        btnTutorial.addEventListener('click', () => {
+            window.electronAPI.openExternal('https://github.com/devansh0703/Nyx#readme');
+        });
+    }
+
+    // Populate the display selector (Nyx "Change display")
+    async function populateDisplays() {
+        if (!preferredDisplaySelect) return;
+        try {
+            const displays = await window.electronAPI.listDisplaysForSettings();
+            if (!displays || !displays.length) return;
+            preferredDisplaySelect.innerHTML = '<option value="">Auto (current)</option>' +
+                displays.map(d => `<option value="${escAttr(d.id)}">${escHtml(d.label)}</option>`).join('');
+        } catch (e) { console.error('Failed to list displays:', e); }
+    }
+
+    // Show the current app version (Nyx "App version" row)
+    async function loadAppVersion() {
+        if (!appVersionEl) return;
+        try {
+            const info = await window.electronAPI.getAppVersion();
+            appVersionEl.textContent = info.version || '—';
+            if (appVersionText) {
+                appVersionText.textContent = info.electron
+                    ? `Electron ${info.electron} · up to date`
+                    : 'Up to date';
+            }
+        } catch (_) {
+            appVersionEl.textContent = '—';
+        }
+    }
+
+    function escHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function escAttr(s) {
+        return String(s ?? '').replace(/["'&<>]/g, c => ({ '"': '&quot;', "'": '&#39;', '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    }
+
+    // ── Editable keyboard shortcuts (Nyx Settings → Shortcuts) ──
+    async function renderShortcuts() {
+        const list = document.getElementById('shortcutList');
+        if (!list) return;
+        try {
+            const shortcuts = await window.electronAPI.getShortcuts();
+            list.innerHTML = shortcuts.map(s => `
+                <div class="settings-item" data-shortcut="${escAttr(s.id)}">
+                    <div>
+                        <div class="settings-item-label">${escHtml(s.id.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()))}</div>
+                        <div class="settings-item-description">${s.disabled ? 'Disabled' : escHtml(s.accelerator || s.default)}</div>
+                    </div>
+                    <div style="display:flex;gap:6px">
+                        <button class="input-field shortcut-edit" style="width:auto;padding:4px 10px;font-size:11px;cursor:pointer">Edit</button>
+                        <button class="input-field shortcut-toggle" style="width:auto;padding:4px 10px;font-size:11px;cursor:pointer">${s.disabled ? 'Enable' : 'Disable'}</button>
+                    </div>
+                </div>`).join('');
+
+            list.querySelectorAll('[data-shortcut]').forEach(row => {
+                const id = row.dataset.shortcut;
+                const editBtn = row.querySelector('.shortcut-edit');
+                const toggleBtn = row.querySelector('.shortcut-toggle');
+
+                editBtn.addEventListener('click', () => {
+                    const current = row.querySelector('.settings-item-description').textContent;
+                    const next = prompt(`New accelerator for "${id}"\n(e.g. CommandOrControl+Shift+9, or type "disabled"):\n\nCurrent: ${current}`);
+                    if (next === null) return; // cancelled
+                    window.electronAPI.setShortcut(id, next.trim()).then(() => renderShortcuts());
+                });
+
+                toggleBtn.addEventListener('click', () => {
+                    const disabled = toggleBtn.textContent.trim() === 'Disable';
+                    window.electronAPI.setShortcut(id, disabled ? 'disabled' : '').then(() => renderShortcuts());
+                });
+            });
+        } catch (e) {
+            console.error('Failed to render shortcuts:', e);
+        }
+    }
+
+    const btnResetShortcuts = document.getElementById('btnResetShortcuts');
+    if (btnResetShortcuts) {
+        btnResetShortcuts.addEventListener('click', async () => {
+            try {
+                await window.electronAPI.resetShortcuts();
+                await renderShortcuts();
+            } catch (e) { console.error('Reset shortcuts failed:', e); }
+        });
+    }
+    renderShortcuts();
+
+    // NVIDIA NIM connection test
+    if (btnTestLlm) {
+        btnTestLlm.addEventListener('click', async () => {
+            btnTestLlm.disabled = true;
+            btnTestLlm.textContent = 'Testing…';
+            llmTestResult.style.display = 'none';
+            try {
+                const result = await window.electronAPI.testLlmConnection();
+                llmTestResult.style.display = '';
+                if (result && result.success) {
+                    llmTestResult.textContent = `✓ Connected — model replied in ${result.latency}ms`;
+                    llmTestResult.style.color = '#34d399';
+                } else {
+                    llmTestResult.textContent = `✗ ${(result && result.error) || 'Connection failed'}`;
+                    llmTestResult.style.color = '#f87171';
+                }
+            } catch (e) {
+                llmTestResult.style.display = '';
+                llmTestResult.textContent = '✗ ' + e.message;
+                llmTestResult.style.color = '#f87171';
+            } finally {
+                btnTestLlm.disabled = false;
+                btnTestLlm.textContent = 'Test';
+            }
+        });
+    }
+
+    if (llmProviderSelect) {
+        llmProviderSelect.addEventListener('change', async () => {
+            // Switch backend immediately (in-memory), then persist via saveSettings.
+            try {
+                if (window.electronAPI && window.electronAPI.setLlmProvider) {
+                    const res = await window.electronAPI.setLlmProvider(llmProviderSelect.value);
+                    if (res && res.success) {
+                        logger.info('LLM provider switched:', llmProviderSelect.value);
+                    }
+                }
+            } catch (e) {
+                console.error('Provider switch failed:', e);
+            }
             saveSettings();
         });
     }

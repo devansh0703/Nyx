@@ -2,14 +2,13 @@
 /**
  * Onboarding wizard controller.
  *
- * Drives the 5-step flow rendered in onboarding.html and persists
+ * Drives the 4-step flow rendered in onboarding.html and persists
  * everything via the electronAPI bridge exposed by preload.js:
  *
  *   1. Welcome
- *   2. Gemini API key entry + live connection test
- *   3. Speech provider choice (Whisper / Azure / Skip)
- *   4. Whisper detect + (optional) install — only shown when whisper
- *   5. Star-the-repo prompt + summary
+ *   2. NVIDIA NIM API key entry + live connection test (chat backend)
+ *   3. Gemini API key entry + live test (text/vision/audio: transcription)
+ *   4. Star-the-repo prompt + summary
  */
 
 (function () {
@@ -19,50 +18,29 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  // Quote the executable portion of a command string if it contains spaces.
-  // This keeps Windows user profile paths (e.g. C:\Users\CANDAN SINGH\...) intact.
-  function quoteCommandIfNeeded(cmd) {
-    if (!cmd) return cmd;
-    const firstSpace = cmd.indexOf(' ');
-    if (firstSpace === -1) return cmd;
-    const exe = cmd.slice(0, firstSpace);
-    const rest = cmd.slice(firstSpace + 1);
-    if (exe.startsWith('"') || rest.startsWith('"')) return cmd;
-    return `"${exe}" ${rest}`;
-  }
-
   const screens = $$('.screen');
   const stepperDots = $$('.step-dot');
   const stepBadge = $('#stepBadge');
   const backBtn = $('#backBtn');
   const nextBtn = $('#nextBtn');
   const skipBtn = $('#skipBtn');
-  const nav = $('#wizard .nav'); // the centered nav container
 
   // ── State ─────────────────────────────────────────────────────────
   const state = {
     step: 0,
+    nvidiaKey: '',
+    nvidiaConfigured: false, // a key already exists in .env/bashrc from a prior run
     geminiKey: '',
-    geminiConfigured: false, // a key already exists in .env from a prior run
-    speechProvider: null, // 'whisper' | 'azure' | 'skip'
-    azureKey: '',
-    azureRegion: '',
-    whisperCmd: null,
-    whisperDetected: false,
-    skippingWhisper: false,
-    modelDownloadChoice: null, // 'now' | 'later'
-    modelDownloading: false,
-    modelDownloaded: false,
+    geminiConfigured: false,
     finished: false,
   };
 
-  // Screens are: welcome → apikey → speech → whisper? → finish
-  // The whisper screen is only visited if state.speechProvider === 'whisper'
-  const stepScreens = ['welcome', 'apikey', 'speech'];
+  // Screens are: welcome → nvidia key → gemini key → finish
+  const stepScreens = ['welcome', 'apikey', 'geminiskey', 'finish'];
 
   // ── Step rendering ────────────────────────────────────────────────
   function totalSteps() {
-    return stepScreens.length + (state.speechProvider === 'whisper' ? 1 : 0) + 1;
+    return stepScreens.length;
   }
 
   function refreshStepper() {
@@ -87,26 +65,14 @@
     }
     refreshStepper();
     backBtn.style.visibility = state.step === 0 ? 'hidden' : 'visible';
-    // Reset next button state unless we're actively downloading a model
-    if (name !== 'model-download' || !state.modelDownloading) {
-      nextBtn.disabled = false;
-      nextBtn.classList.remove('success');
-      nextBtn.classList.add('primary');
-    }
+    skipBtn.style.visibility = 'hidden';
+    nextBtn.disabled = false;
+    nextBtn.classList.remove('success');
+    nextBtn.classList.add('primary');
     // The primary action label changes by step
     if (name === 'welcome') nextBtn.innerHTML = 'Get started <i class="fas fa-arrow-right"></i>';
     else if (name === 'finish') nextBtn.innerHTML = 'Finish <i class="fas fa-check"></i>';
-    else if (name === 'whisper') nextBtn.innerHTML = 'Continue <i class="fas fa-arrow-right"></i>';
     else nextBtn.innerHTML = 'Continue <i class="fas fa-arrow-right"></i>';
-  }
-
-  function navigate(direction) {
-    const order = computeScreenOrder();
-    const idx = order.indexOf(currentScreenName());
-    const next = direction === 'next' ? idx + 1 : idx - 1;
-    if (next < 0 || next >= order.length) return;
-    state.step = orderScreenToStep(order[next]);
-    showScreen(order[next]);
   }
 
   function currentScreenName() {
@@ -114,18 +80,13 @@
     return active ? active.dataset.screen : 'welcome';
   }
 
-  // Order depends on choices — e.g. whisper path inserts the install screen.
-  function computeScreenOrder() {
-    const out = ['welcome', 'apikey', 'speech'];
-    if (state.speechProvider === 'whisper') out.push('whisper');
-    if (state.speechProvider === 'whisper') out.push('model-download');
-    out.push('finish');
-    return out;
-  }
-
-  // Map a screen name to its position in the stepper (0..n).
-  function orderScreenToStep(name) {
-    return computeScreenOrder().indexOf(name);
+  function navigate(direction) {
+    const idx = stepScreens.indexOf(currentScreenName());
+    const next = direction === 'next' ? idx + 1 : idx - 1;
+    if (next < 0 || next >= stepScreens.length) return;
+    state.step = next;
+    showScreen(stepScreens[next]);
+    if (stepScreens[next] === 'finish') populateSummary();
   }
 
   // ── Validation gates before "Continue" ───────────────────────────
@@ -135,18 +96,12 @@
       case 'welcome':
         return true;
       case 'apikey':
-        // A key already in .env is enough — don't force a re-entry.
+        // A key already in .env/bashrc is enough — don't force a re-entry.
+        return !!state.nvidiaKey.trim() || state.nvidiaConfigured;
+      case 'geminiskey':
+        // Gemini is required: it powers text/vision alt-provider AND all
+        // voice transcription. A key already in .env/bashrc counts.
         return !!state.geminiKey.trim() || state.geminiConfigured;
-      case 'speech':
-        if (state.speechProvider === 'azure') {
-          return !!state.azureKey.trim() && !!state.azureRegion.trim();
-        }
-        return !!state.speechProvider;
-      case 'whisper':
-        // Allow advancing whether whisper is detected OR user skipped
-        return state.whisperDetected || state.skippingWhisper;
-      case 'model-download':
-        return !!state.modelDownloadChoice && !state.modelDownloading;
       case 'finish':
         return true;
       default:
@@ -154,31 +109,35 @@
     }
   }
 
-  // ── Wire up: API key ──────────────────────────────────────────────
-  const geminiInput = $('#geminiKey');
+  // ── Wire up: NVIDIA API key ───────────────────────────────────────
+  const apiKeyInput = $('#nvidiaKey');
   const toggleVis = $('#toggleVis');
   const keyStatus = $('#keyStatus');
 
-  function setKeyStatus(state_, text) {
-    keyStatus.className = `status-pill ${state_}`;
-    keyStatus.style.display = 'inline-flex';
-    const icon = keyStatus.querySelector('i');
-    const txt = keyStatus.querySelector('.text');
-    if (state_ === 'testing') {
-      icon.className = 'fas fa-circle-notch fa-spin';
-    } else if (state_ === 'success') {
-      icon.className = 'fas fa-check-circle';
-    } else if (state_ === 'error') {
-      icon.className = 'fas fa-circle-xmark';
-    } else {
-      icon.className = 'fas fa-circle-info';
-    }
-    txt.textContent = text;
+  function makeStatusSetter(pillEl) {
+    return function set(state_, text) {
+      pillEl.className = `status-pill ${state_}`;
+      pillEl.style.display = 'inline-flex';
+      const icon = pillEl.querySelector('i');
+      const txt = pillEl.querySelector('.text');
+      if (state_ === 'testing') {
+        icon.className = 'fas fa-circle-notch fa-spin';
+      } else if (state_ === 'success') {
+        icon.className = 'fas fa-check-circle';
+      } else if (state_ === 'error') {
+        icon.className = 'fas fa-circle-xmark';
+      } else {
+        icon.className = 'fas fa-circle-info';
+      }
+      txt.textContent = text;
+    };
   }
 
-  geminiInput.addEventListener('input', () => {
-    state.geminiKey = geminiInput.value.trim();
-    if (!state.geminiKey) {
+  const setKeyStatus = makeStatusSetter(keyStatus);
+
+  apiKeyInput.addEventListener('input', () => {
+    state.nvidiaKey = apiKeyInput.value.trim();
+    if (!state.nvidiaKey) {
       keyStatus.style.display = 'none';
     } else if (keyStatus.classList.contains('success')) {
       // Keep success state — they had a valid key, may be editing
@@ -188,292 +147,53 @@
   });
 
   toggleVis.addEventListener('click', () => {
-    const showing = geminiInput.type === 'text';
-    geminiInput.type = showing ? 'password' : 'text';
+    const showing = apiKeyInput.type === 'text';
+    apiKeyInput.type = showing ? 'password' : 'text';
     toggleVis.innerHTML = showing
       ? '<i class="fas fa-eye"></i>'
       : '<i class="fas fa-eye-slash"></i>';
   });
 
-  // ── Wire up: Speech choices ───────────────────────────────────────
-  $$('#speechChoices .choice-card').forEach((card) => {
-    card.addEventListener('click', () => {
-      const value = card.dataset.value;
-      state.speechProvider = value;
-      $$('#speechChoices .choice-card').forEach((c) => c.classList.remove('selected'));
-      card.classList.add('selected');
-      const azurePanel = $('#azurePanel');
-      azurePanel.style.display = value === 'azure' ? 'block' : 'none';
-      if (value !== 'azure') {
-        state.azureKey = '';
-        state.azureRegion = '';
-      }
-    });
+  // ── Wire up: Gemini API key ───────────────────────────────────────
+  const geminiKeyInput = $('#geminiKey');
+  const geminiToggleVis = $('#geminiToggleVis');
+  const geminiStatus = $('#geminiStatus');
+  const setGeminiStatus = makeStatusSetter(geminiStatus);
+
+  geminiKeyInput.addEventListener('input', () => {
+    state.geminiKey = geminiKeyInput.value.trim();
+    if (!state.geminiKey) {
+      geminiStatus.style.display = 'none';
+    } else if (geminiStatus.classList.contains('success')) {
+      // Keep success state
+    } else {
+      setGeminiStatus('idle', 'Key entered');
+    }
   });
 
-  $('#azureKey').addEventListener('input', (e) => { state.azureKey = e.target.value.trim(); });
-  $('#azureRegion').addEventListener('input', (e) => { state.azureRegion = e.target.value.trim(); });
-
-  // ── Wire up: Whisper screen ───────────────────────────────────────
-  const installLog = $('#installLog');
-  const detectCmd = $('#detectCmd');
-  const detectStatus = $('#detectStatus');
-  const installList = $('#installList');
-  const installCardTitle = $('#installCardTitle');
-
-  function appendLog(line) {
-    installLog.textContent += (installLog.textContent ? '\n' : '') + line;
-    installLog.scrollTop = installLog.scrollHeight;
-  }
-
-  function setDetectStatus(state_, text) {
-    detectStatus.className = `status-pill ${state_}`;
-    const icon = detectStatus.querySelector('i');
-    if (state_ === 'success') icon.className = 'fas fa-check-circle';
-    else if (state_ === 'error') icon.className = 'fas fa-circle-xmark';
-    else if (state_ === 'idle') icon.className = 'fas fa-circle-info';
-    else icon.className = 'fas fa-circle-notch fa-spin';
-    detectStatus.querySelector('.text').textContent = text;
-  }
-
-  async function runWhisperDetect() {
-    detectCmd.textContent = 'scanning…';
-    setDetectStatus('testing', 'Probing');
-    try {
-      const r = await window.electronAPI.detectWhisper();
-      if (r.found) {
-        state.whisperDetected = true;
-        state.whisperCmd = r.command;
-        detectCmd.textContent = r.command;
-        setDetectStatus('success', `Found v${r.version || '?'}`);
-        appendLog(`✓ Detected Whisper CLI: ${r.command}`);
-      } else {
-        detectCmd.textContent = 'not found';
-        setDetectStatus('error', 'Not installed');
-        appendLog('✗ No Whisper CLI detected on PATH or in known venvs');
-      }
-    } catch (e) {
-      setDetectStatus('error', 'Probe failed');
-      appendLog(`! Detection error: ${e.message || e}`);
-    }
-  }
-
-  async function runWhisperInstall() {
-    const btn = document.getElementById('installWhisperBtn');
-    installLog.textContent = '';
-    setDetectStatus('testing', 'Installing');
-    appendLog('Starting install…');
-
-    // Lock the button while installing so the user can't double-click
-    // and spawn parallel installs. Change the label to "Installing…"
-    // with a spinner so they see real progress.
-    if (btn) {
-      btn.disabled = true;
-      btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
-      btn.innerHTML = '<span class="spinner"></span> Installing…';
-    }
-
-    // Subscribe to streamed progress lines from the main process.
-    // `installWhisper()` only returns once install completes; live
-    // output comes through `onInstallProgress` events.
-    let progressHandler = null;
-    if (window.electronAPI && window.electronAPI.onInstallProgress) {
-      progressHandler = (line) => appendLog(line);
-      window.electronAPI.onInstallProgress(progressHandler);
-    }
-
-    try {
-      const r = await window.electronAPI.installWhisper();
-      if (r.ok) {
-        state.whisperDetected = true;
-        state.whisperCmd = r.command;
-        detectCmd.textContent = r.command;
-        setDetectStatus('success', 'Installed');
-        appendLog(`\n✓ ${r.message}`);
-        if (btn) {
-          // Keep button disabled — install is done. Show a checkmark
-          // so the user sees the final state at a glance.
-          btn.innerHTML = '<i class="fas fa-check-circle"></i> Installed';
-          btn.classList.remove('primary');
-          btn.classList.add('success');
-        }
-      } else {
-        setDetectStatus('error', 'Install failed');
-        appendLog(`\n✗ ${r.message}`);
-        // Restore the button so the user can retry.
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = btn.dataset.originalHtml || '<i class="fas fa-download"></i> Install Whisper now';
-        }
-      }
-    } catch (e) {
-      setDetectStatus('error', 'Install error');
-      appendLog(`\n! ${e.message || e}`);
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = btn.dataset.originalHtml || '<i class="fas fa-download"></i> Install Whisper now';
-      }
-    } finally {
-      if (progressHandler && window.electronAPI.removeAllListeners) {
-        try { window.electronAPI.removeAllListeners('install-progress'); } catch (_) { /* ignore */ }
-      }
-    }
-  }
-
-  // Whisper screen logic
-  let whisperInitialized = false;
-  function enterWhisperScreen() {
-    if (whisperInitialized) return;
-    whisperInitialized = true;
-    const hints = {
-      win32: {
-        title: "We'll create a project-local venv and install openai-whisper",
-        steps: [
-          'Python 3.10+ must be on PATH (download from python.org if missing).',
-          'A new <code>.venv-whisper\\</code> folder will be created in the app directory.',
-          'Whisper will be installed into that venv (pip download, no admin rights needed).',
-          'First transcription downloads the <code>small</code> model (~461 MB).',
-        ],
-      },
-      darwin: {
-        title: "We'll create a project-local venv and install openai-whisper",
-        steps: [
-          'Uses your existing Python 3 (install via Homebrew if missing).',
-          'A new <code>.venv-whisper/</code> folder is created in the app data directory.',
-          'Whisper installs into that venv — no <code>sudo</code> required.',
-          'First transcription downloads the <code>small</code> model (~461 MB).',
-        ],
-      },
-      other: {
-        title: "We'll create a project-local venv and install openai-whisper",
-        steps: [
-          'Uses your system Python 3 (needs <code>python3-venv</code> on Debian/Ubuntu).',
-          'A new <code>.venv-whisper/</code> folder is created in the app data directory.',
-          'Whisper installs into that venv — avoids the externally-managed-environment error.',
-          'First transcription downloads the <code>small</code> model (~461 MB).',
-        ],
-      },
-    };
-    const plat = navigator.platform.toLowerCase().includes('win')
-      ? 'win32'
-      : navigator.platform.toLowerCase().includes('mac')
-        ? 'darwin'
-        : 'other';
-    const h = hints[plat];
-    installCardTitle.textContent = h.title;
-    installList.innerHTML = h.steps.map((s) => `<li>${s}</li>`).join('');
-    runWhisperDetect();
-  }
-
-  // ── Wire up: Model Download screen ───────────────────────────────
-  const modelDownloadLog = $('#modelDownloadLog');
-  const modelDownloadChoices = $('#modelDownloadChoices');
-
-  function appendModelLog(line) {
-    modelDownloadLog.textContent += (modelDownloadLog.textContent ? '\n' : '') + line;
-    modelDownloadLog.scrollTop = modelDownloadLog.scrollHeight;
-  }
-
-  let modelDownloadInitialized = false;
-  function enterModelDownloadScreen() {
-    if (!modelDownloadInitialized) {
-      modelDownloadInitialized = true;
-
-      // Set up choice card click handlers once
-      $$('#modelDownloadChoices .choice-card').forEach((card) => {
-        card.addEventListener('click', () => {
-          const value = card.dataset.value;
-          state.modelDownloadChoice = value;
-          $$('#modelDownloadChoices .choice-card').forEach((c) => c.classList.remove('selected'));
-          card.classList.add('selected');
-          
-          if (value === 'now') {
-            // Start downloading the model immediately
-            startModelDownload();
-          } else {
-            nextBtn.disabled = false;
-          }
-        });
-      });
-    }
-
-    // Restore selection state when navigating back
-    $$('#modelDownloadChoices .choice-card').forEach((card) => {
-      card.classList.toggle('selected', card.dataset.value === state.modelDownloadChoice);
-    });
-
-    // Re-enable continue button if a choice has been made and not actively downloading
-    if (state.modelDownloadChoice && !state.modelDownloading) {
-      nextBtn.disabled = false;
-    }
-  }
-
-  async function startModelDownload() {
-    state.modelDownloading = true;
-    nextBtn.disabled = true;
-    nextBtn.innerHTML = '<span class="spinner"></span> Downloading…';
-
-    appendModelLog('Starting model download…');
-
-    let progressHandler = null;
-    if (window.electronAPI && window.electronAPI.onInstallProgress) {
-      progressHandler = (line) => appendModelLog(line);
-      window.electronAPI.onInstallProgress(progressHandler);
-    }
-
-    try {
-      const r = await window.electronAPI.downloadWhisperModel('small');
-      state.modelDownloading = false;
-      if (r.ok) {
-        state.modelDownloaded = true;
-        appendModelLog(`\n✓ Model downloaded successfully: ${r.path}`);
-        nextBtn.disabled = false;
-        nextBtn.classList.remove('primary');
-        nextBtn.classList.add('success');
-        nextBtn.innerHTML = '<i class="fas fa-check-circle"></i> Continue';
-      } else {
-        appendModelLog(`\n✗ Download failed: ${r.message}`);
-        // Let user continue anyway; they'll download on first use
-        nextBtn.disabled = false;
-      }
-    } catch (e) {
-      state.modelDownloading = false;
-      appendModelLog(`\n! Error: ${e.message || e}`);
-      nextBtn.disabled = false;
-    } finally {
-      if (progressHandler && window.electronAPI.removeAllListeners) {
-        try { window.electronAPI.removeAllListeners('install-progress'); } catch (_) { /* ignore */ }
-      }
-    }
-  }
+  geminiToggleVis.addEventListener('click', () => {
+    const showing = geminiKeyInput.type === 'text';
+    geminiKeyInput.type = showing ? 'password' : 'text';
+    geminiToggleVis.innerHTML = showing
+      ? '<i class="fas fa-eye"></i>'
+      : '<i class="fas fa-eye-slash"></i>';
+  });
 
   // ── Wire up: Finish screen ────────────────────────────────────────
   function populateSummary() {
     const rows = [];
+    const nvidiaOk = !!(state.nvidiaKey || state.nvidiaConfigured);
     rows.push({
-      label: '<i class="fas fa-key"></i> Gemini API',
-      value: (state.geminiKey || state.geminiConfigured) ? 'Configured' : 'Missing',
-      cls: (state.geminiKey || state.geminiConfigured) ? 'ok' : 'skip',
+      label: '<i class="fas fa-key"></i> NVIDIA NIM API',
+      value: nvidiaOk ? 'Configured' : 'Missing',
+      cls: nvidiaOk ? 'ok' : 'skip',
     });
-    if (state.speechProvider === 'whisper') {
-      rows.push({
-        label: '<i class="fas fa-microphone"></i> Speech',
-        value: state.whisperDetected ? `Whisper (${state.whisperCmd || 'cli'})` : 'Whisper (not installed)',
-        cls: state.whisperDetected ? 'ok' : 'skip',
-      });
-    } else if (state.speechProvider === 'azure') {
-      rows.push({
-        label: '<i class="fas fa-cloud"></i> Speech',
-        value: 'Azure',
-        cls: 'ok',
-      });
-    } else {
-      rows.push({
-        label: '<i class="fas fa-microphone"></i> Speech',
-        value: 'Skipped (configure later)',
-        cls: 'skip',
-      });
-    }
+    const geminiOk = !!(state.geminiKey || state.geminiConfigured);
+    rows.push({
+      label: '<i class="fas fa-key"></i> Google Gemini API',
+      value: geminiOk ? 'Configured' : 'Missing',
+      cls: geminiOk ? 'ok' : 'skip',
+    });
     rows.push({
       label: '<i class="fas fa-file-lines"></i> Config saved to',
       value: '.env',
@@ -491,9 +211,9 @@
 
   $('#starBtn').addEventListener('click', () => {
     if (window.electronAPI && window.electronAPI.openExternal) {
-      window.electronAPI.openExternal('https://github.com/TechyCSR/OpenCluely');
+      window.electronAPI.openExternal('https://github.com/devansh0703/Nyx');
     } else {
-      window.open('https://github.com/TechyCSR/OpenCluely', '_blank');
+      window.open('https://github.com/devansh0703/Nyx', '_blank');
     }
   });
   $('#skipStarBtn').addEventListener('click', () => {
@@ -514,57 +234,22 @@
     const name = currentScreenName();
     if (!canAdvance()) {
       // Lightly nudge the user
-      if (name === 'apikey') setKeyStatus('error', 'Enter a Gemini API key');
+      if (name === 'apikey') setKeyStatus('error', 'Enter an NVIDIA API key');
+      if (name === 'geminiskey') setGeminiStatus('error', 'Enter a Gemini API key');
       return;
     }
 
-    // Persist settings on speech selection (Azure path), since we
-    // already saved geminiKey on test; do it here too if user skipped
-    // testing.
-    if (name === 'apikey' && state.geminiKey && window.electronAPI) {
+    // Persist keys as they're confirmed so nothing is lost if the
+    // wizard is closed partway.
+    if (name === 'apikey' && state.nvidiaKey && window.electronAPI) {
+      try {
+        await window.electronAPI.saveSettings({ nvidiaKey: state.nvidiaKey });
+      } catch (_) { /* surfaced elsewhere */ }
+    }
+    if (name === 'geminiskey' && state.geminiKey && window.electronAPI) {
       try {
         await window.electronAPI.saveSettings({ geminiKey: state.geminiKey });
       } catch (_) { /* surfaced elsewhere */ }
-    }
-    if (name === 'speech' && window.electronAPI) {
-      try {
-        const payload = {
-          speechProvider:
-            state.speechProvider === 'skip' ? 'whisper' : state.speechProvider,
-        };
-        if (state.speechProvider === 'azure') {
-          payload.azureKey = state.azureKey;
-          payload.azureRegion = state.azureRegion;
-        }
-        if (state.speechProvider === 'whisper' && state.whisperCmd) {
-          payload.whisperCommand = quoteCommandIfNeeded(state.whisperCmd);
-        }
-        await window.electronAPI.saveSettings(payload);
-      } catch (_) { /* surfaced elsewhere */ }
-    }
-
-    // Whisper screen: kick off detection on entry
-    if (name === 'speech' && state.speechProvider === 'whisper') {
-      // (deferred: will run via enterWhisperScreen)
-    }
-
-    // Whisper screen "Continue" — if user wants to skip install, mark and proceed
-    if (name === 'whisper') {
-      // Persist whatever whisper command we found (could be empty if skipped)
-      if (window.electronAPI && state.whisperCmd) {
-        try {
-          await window.electronAPI.saveSettings({ whisperCommand: quoteCommandIfNeeded(state.whisperCmd) });
-        } catch (_) { /* ignore */ }
-      }
-    }
-
-    // Model download screen: persist choice
-    if (name === 'model-download') {
-      if (window.electronAPI && state.modelDownloadChoice) {
-        try {
-          await window.electronAPI.saveSettings({ whisperModelDownload: state.modelDownloadChoice });
-        } catch (_) { /* ignore */ }
-      }
     }
 
     // Finish: close onboarding
@@ -579,93 +264,43 @@
       return;
     }
 
-    // Move forward, with whisper-screen insertion handled by order logic
-    const order = computeScreenOrder();
-    const idx = order.indexOf(name);
-    const nextName = order[idx + 1];
+    // Move forward
+    const idx = stepScreens.indexOf(name);
+    const nextName = stepScreens[idx + 1];
     if (!nextName) return;
 
-    // Compute new step index
-    state.step = orderScreenToStep(nextName);
+    state.step = idx + 1;
     showScreen(nextName);
-    if (nextName === 'whisper') enterWhisperScreen();
-    if (nextName === 'model-download') enterModelDownloadScreen();
     if (nextName === 'finish') populateSummary();
 
-    // Re-render stepper with new total
     refreshStepper();
   });
 
   backBtn.addEventListener('click', () => {
-    const name = currentScreenName();
-    const order = computeScreenOrder();
-    const idx = order.indexOf(name);
-    const prevName = order[idx - 1];
-    if (!prevName) return;
-    state.step = orderScreenToStep(prevName);
-    showScreen(prevName);
+    navigate('back');
   });
 
-  // Skip button: only shown on the whisper screen, lets user skip install
-  // even if the CLI isn't present (they can configure later).
-  function refreshSkipVisibility() {
-    skipBtn.style.display = currentScreenName() === 'whisper' && !state.whisperDetected
-      ? 'inline-flex'
-      : 'none';
-  }
-
-  // Hook into showScreen to keep skip visibility in sync
-  const _origShowScreen = showScreen;
-  showScreen = function (name) {
-    _origShowScreen(name);
-    refreshSkipVisibility();
-    refreshStepper();
-  };
-
-  skipBtn.addEventListener('click', () => {
-    state.skippingWhisper = true;
-    // Jump to finish without installing
-    const order = computeScreenOrder();
-    const finishName = order[order.length - 1];
-    state.step = orderScreenToStep(finishName);
-    showScreen(finishName);
-    populateSummary();
-  });
-
-  // ── Manual install button (added dynamically) ─────────────────────
-  function addManualInstallButton() {
-    if (document.getElementById('installWhisperBtn')) return;
-    const btn = document.createElement('button');
-    btn.id = 'installWhisperBtn';
-    btn.type = 'button';
-    btn.className = 'btn primary';
-    btn.style.marginTop = '12px';
-    btn.innerHTML = '<i class="fas fa-download"></i> Install Whisper now';
-    btn.addEventListener('click', runWhisperInstall);
-    document.querySelector('[data-screen="whisper"]').appendChild(btn);
-  }
-
-  // Show install button after detection runs and finds nothing
-  const _origDetect = runWhisperDetect;
-  runWhisperDetect = async function () {
-    await _origDetect();
-    if (!state.whisperDetected) addManualInstallButton();
-  };
+  // Skip button is unused in this flow but kept wired so the markup
+  // can re-enable it without JS changes.
+  skipBtn.addEventListener('click', () => { /* no-op */ });
 
   // ── Boot ──────────────────────────────────────────────────────────
   showScreen('welcome');
 
-  // Pre-populate Gemini key from existing .env (if any) so users with
-  // a partial config don't have to retype.
+  // Pre-populate key status from existing .env/bashrc so users with a
+  // partial config don't have to retype.
   if (window.electronAPI && window.electronAPI.getFirstRunStatus) {
     window.electronAPI.getFirstRunStatus().then((s) => {
-      if (s && s.geminiConfigured) {
-        // We can't read the key back (settings returns empty for keys),
-        // but we can mark status as success if the env file already has one
-        // and let the user advance without retyping it.
-        state.geminiConfigured = true;
+      if (!s) return;
+      if (s.nvidiaConfigured) {
+        state.nvidiaConfigured = true;
         setKeyStatus('success', 'Already configured — click Continue');
-        geminiInput.placeholder = '•••••••••••••••• (already set)';
+        apiKeyInput.placeholder = '•••••••••••••••• (already set)';
+      }
+      if (s.geminiConfigured) {
+        state.geminiConfigured = true;
+        setGeminiStatus('success', 'Already configured — click Continue');
+        geminiKeyInput.placeholder = '•••••••••••••••• (already set)';
       }
     }).catch(() => {});
   }

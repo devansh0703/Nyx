@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Live Insights</title>
+  <link href="./dist/output.css" rel="stylesheet" />
+  <style>
+    :root { --bg: rgba(10,10,14,.92); --border: rgba(255,255,255,.1); --accent: #6c8cff; --good: #34d399; --text: #ececf2; --muted: #9a9aa6; }
+    * { box-sizing: border-box; user-select: none; }
+    body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: transparent; overflow: hidden; width: fit-content; }
+
+    .insights-card {
+      width: 560px; background: var(--bg); backdrop-filter: blur(24px);
+      border: 1px solid var(--border); border-radius: 14px; color: var(--text);
+      box-shadow: 0 18px 50px rgba(0,0,0,.5); overflow: hidden;
+    }
+
+    /* Nav bar */
+    .nav-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .drag-zone { -webkit-app-region: drag; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: grab; }
+    .drag-grip { color: var(--muted); font-size: 12px; letter-spacing: 1px; cursor: grab; }
+    .brand { font-weight: 700; font-size: 12px; letter-spacing: .3px; }
+    .brand i { width: 10px; height: 10px; border-radius: 50%; background: linear-gradient(135deg, #6c8cff, #8b5cf6); display: inline-block; margin-right: 6px; }
+    .nav-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 5px 7px; border-radius: 7px; font-size: 12px; transition: all .15s ease; }
+    .nav-btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+    .nav-btn.on { color: var(--good); }
+    .end-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 5px 12px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .end-btn:hover { opacity: .88; }
+    .end-btn.idle { background: rgba(255,255,255,.1); color: var(--text); font-weight: 500; }
+
+    /* Mode dropdown + transcript toggle */
+    .controls-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; }
+    .mode-select {
+      background: rgba(255,255,255,.06); border: 1px solid var(--border); color: var(--text);
+      font-size: 11px; border-radius: 7px; padding: 4px 8px; outline: none; cursor: pointer; max-width: 190px;
+    }
+    .mode-select option { background: #17171c; }
+    .toggle-transcript { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); cursor: pointer; }
+    .switch { width: 28px; height: 16px; border-radius: 999px; background: rgba(255,255,255,.12); position: relative; transition: background .2s; }
+    .switch.on { background: var(--accent); }
+    .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: left .2s; }
+    .switch.on::after { left: 14px; }
+
+    /* Content area */
+    .insights-body { padding: 10px 12px; }
+    .content-box {
+      height: 150px; overflow-y: auto; background: rgba(255,255,255,.03);
+      border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+      font-size: 12.5px; line-height: 1.55; user-select: text;
+    }
+    .content-box::-webkit-scrollbar { width: 5px; }
+    .content-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 3px; }
+    .content-box .placeholder { color: var(--muted); font-style: italic; }
+    .transcript-line { margin-bottom: 5px; }
+    .transcript-line .ts { color: var(--muted); font-size: 10px; margin-right: 6px; }
+    code { background: rgba(0,0,0,.4); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+    pre { background: rgba(0,0,0,.4); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font-size: 11.5px; }
+    pre code { background: none; padding: 0; }
+
+    /* Default actions */
+    .actions-row { display: flex; gap: 6px; padding: 8px 12px 4px; flex-wrap: wrap; }
+    .action-chip {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600;
+      padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border);
+      background: rgba(255,255,255,.04); color: var(--muted); cursor: pointer; transition: all .15s;
+    }
+    .action-chip:hover { border-color: var(--accent); color: var(--accent); }
+    .action-chip.busy { opacity: .5; pointer-events: none; }
+
+    /* Smart Mode lightning toggle */
+    .smart-btn { font-size: 14px; }
+    .smart-btn.on { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px rgba(120,140,255,.35); }
+    .system-btn.on { color: var(--good); border-color: var(--good); box-shadow: 0 0 8px rgba(52,211,153,.35); }
+
+    /* Dynamic insights */
+    .dynamic-row { display: flex; gap: 6px; padding: 4px 12px 2px; overflow-x: auto; }
+    .dynamic-row::-webkit-scrollbar { height: 0; }
+    .dyn-chip {
+      flex-shrink: 0; font-size: 10.5px; padding: 4px 9px; border-radius: 999px;
+      border: 1px dashed rgba(108,140,255,.4); color: #aebdff; cursor: pointer; background: rgba(108,140,255,.06);
+      max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: all .15s;
+    }
+    .dyn-chip:hover { background: rgba(108,140,255,.16); }
+    .dyn-hint { font-size: 10px; color: var(--muted); padding: 2px 12px 0; }
+
+    /* Ask bar */
+    .ask-row { display: flex; gap: 6px; padding: 8px 12px 12px; align-items: center; }
+    .ask-input {
+      flex: 1; background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: 9px;
+      color: var(--text); padding: 8px 11px; font-size: 12px; outline: none; user-select: text;
+    }
+    .ask-input:focus { border-color: var(--accent); }
+    .ask-input::placeholder { color: var(--muted); }
+    .send-btn { background: var(--accent); border: none; color: #fff; width: 32px; height: 32px; border-radius: 9px; cursor: pointer; font-size: 12px; }
+    .send-btn:hover { opacity: .88; }
+
+    .hidden { display: none !important; }
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="insights-card">
+    <!-- Nav bar -->
+    <div class="nav-bar">
+      <div class="drag-zone" id="dragZone">
+        <span class="drag-grip">⠿</span>
+        <span class="brand"><i></i>Nyx</span>
+      </div>
+      <button class="nav-btn" id="btnAudio" title="Toggle audio (Listen mode)">🎙</button>
+      <button class="nav-btn smart-btn" id="btnSmart" title="Smart Mode — coding assistance">⚡</button>
+      <button class="nav-btn" id="btnSystemAudio" title="Listen to the other party (system audio)">📢</button>
+      <button class="nav-btn" id="btnStartStop" title="Start or end session">● Start</button>
+      <button class="nav-btn end-btn idle" id="btnEnd">▶ Start Session</button>
+      <button class="nav-btn" id="btnHide" title="Hide (Ctrl+\)">✕</button>
+    </div>
+
+    <!-- Mode + transcript toggle -->
+    <div class="controls-row">
+      <select class="mode-select" id="modeSelect" title="Customize Nyx mode"></select>
+      <div class="toggle-transcript" id="transcriptToggle">
+        <span>Show transcript</span>
+        <div class="switch" id="transcriptSwitch"></div>
+      </div>
+    </div>
+
+    <!-- Live insights / transcript -->
+    <div class="insights-body">
+      <div class="content-box" id="contentBox">
+        <div class="placeholder">Start a session and speak — insights and answers stream here.</div>
+      </div>
+    </div>
+
+    <!-- Default actions -->
+    <div class="actions-row" id="actionsRow">
+      <span class="action-chip" data-action="say-next">💬 What should I say next</span>
+      <span class="action-chip" data-action="follow-ups">❓ Follow up questions</span>
+      <span class="action-chip" data-action="fact-check">✅ Fact check</span>
+      <span class="action-chip" data-action="who-am-i-talking-to">👤 Who am I talking to</span>
+      <span class="action-chip" data-action="recap">📋 Recap</span>
+    </div>
+    <!-- Custom live actions (Nyx: user-defined prompt/link chips) -->
+    <div class="actions-row" id="customActionsRow"></div>
+
+    <!-- Dynamic insights -->
+    <div class="dynamic-row hidden" id="dynamicRow"></div>
+    <div class="dyn-hint hidden" id="dynHint">Press <b>Tab</b> to answer the first dynamic insight</div>
+
+    <!-- Ask bar -->
+    <div class="ask-row">
+      <input class="ask-input" id="askInput" placeholder="Ask a question, or Ctrl+Enter for screen assist, Ctrl+Shift+Enter for stealth answer">
+      <button class="send-btn" id="btnAsk" title="Ask">➤</button>
+    </div>
+  </div>
+
+  <script src="./src/ui/live-insights-window.js"></script>
+</body>
+</html>

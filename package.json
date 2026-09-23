@@ -1,6 +1,6 @@
 {
-  "name": "opencluely",
-  "version": "1.0.0",
+  "name": "nyx",
+  "version": "1.1.0",
   "description": "AI Problem Solving Assistant",
   "main": "main.js",
   "scripts": {
@@ -17,18 +17,19 @@
     "clean": "rm -rf dist/",
     "rebuild": "npm run clean && npm run build",
     "release": "npm run clean && npm run build:all",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "test": "node --test tests/"
   },
   "author": {
-    "name": "TechyCSR",
-    "email": "info@techycsr.dev",
-    "url": "https://techycsr.dev"
+    "name": "devansh0703",
+    "email": "devansh0703@users.noreply.github.com",
+    "url": "https://github.com/devansh0703"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TechyCSR/OpenCluely"
+    "url": "https://github.com/devansh0703/Nyx"
   },
-  "license": "ISC",
+  "license": "Apache-2.0",
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.2.0",
     "@google/genai": "^2.9.0",
@@ -42,12 +43,12 @@
     "winston-daily-rotate-file": "^4.7.1"
   },
   "devDependencies": {
-    "electron": "^29.1.0",
+    "electron": "^29.4.6",
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.opencluely.app",
-    "productName": "OpenCluely",
+    "appId": "com.nyx.app",
+    "productName": "Nyx",
     "directories": {
       "output": "dist"
     },
@@ -57,8 +58,6 @@
       "!*.md",
       "!.git/**/*",
       "!.env*",
-      "!.venv-whisper/**/*",
-      "!.whisper-models/**/*",
       "!bin/**/*",
       "!scripts/__pycache__/**/*",
       "!**/*.pyc",
@@ -66,8 +65,7 @@
     ],
     "asarUnpack": [
       "assests/icons/**/*",
-      "prompts/**/*",
-      "scripts/whisper_worker.py"
+      "prompts/**/*"
     ],
     "mac": {
       "category": "public.app-category.utilities",
@@ -91,9 +89,9 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "OpenCluely uses the microphone to transcribe your speech locally with Whisper.",
-        "NSCameraUsageDescription": "OpenCluely does not record video; this entitlement is only present for media-capture compatibility.",
-        "NSScreenCaptureUsageDescription": "OpenCluely captures the screen to read on-screen content for AI assistance."
+        "NSMicrophoneUsageDescription": "Nyx uses the microphone for voice input; audio is transcribed via the Google Gemini API.",
+        "NSCameraUsageDescription": "Nyx does not record video; this entitlement is only present for media-capture compatibility.",
+        "NSScreenCaptureUsageDescription": "Nyx captures the screen to read on-screen content for AI assistance."
       }
     },
     "win": {
@@ -131,7 +129,8 @@
         }
       ],
       "icon": "assests/icons/app-icon.png",
-      "category": "Utility"
+      "category": "Utility",
+      "artifactName": "${name}-${version}-${arch}.${ext}"
     },
     "deb": {
       "depends": [
@@ -162,15 +161,19 @@
       "perMachine": false,
       "include": "scripts/post-install-nsis.nsh",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "OpenCluely-Setup-${version}.${ext}"
+      "artifactName": "Nyx-Setup-${version}.${ext}"
     },
     "dmg": {
-      "title": "OpenCluely Interview Assistant",
+      "title": "Nyx Interview Assistant",
       "backgroundColor": "#000000",
       "window": {
         "width": 600,
         "height": 400
       }
     }
+  },
+  "allowScripts": {
+    "electron@29.4.6": true,
+    "electron-builder": true
   }
 }
