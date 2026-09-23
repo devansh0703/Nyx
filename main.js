@@ -307,6 +307,10 @@ class ApplicationController {
         currentDesktop: "detected",
       });
 
+      // Absorb the Linux desktopCapturer portal timeout at boot so the first
+      // user-triggered screenshot is instant.
+      captureService.warmUp();
+
       sessionManager.addEvent("Application started");
     } catch (error) {
       this.starting = false;

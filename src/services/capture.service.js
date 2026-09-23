@@ -4,6 +4,29 @@ const logger = require('../core/logger').createServiceLogger('CAPTURE');
 class CaptureService {
   constructor() {
     this.isProcessing = false;
+    // Linux: the first desktopCapturer.getSources call blocks ~20s waiting for an
+    // XDG desktop-portal screencast that never arrives on bare X11/Xvfb, then falls
+    // back to X11 capture. Warming it up at boot keeps the first user-triggered
+    // screenshot fast.
+    this._warmupDone = false;
+  }
+
+  /**
+   * Fire-and-forget warm-up call. Safe on all platforms: on macOS/Windows it is
+   * a cheap no-op that returns instantly; on Linux it absorbs the portal timeout
+   * so user-triggered captures do not pay for it.
+   */
+  warmUp() {
+    if (this._warmupDone) return;
+    this._warmupDone = true;
+    const t0 = Date.now();
+    desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } })
+      .then((sources) => {
+        logger.logPerformance('Capture warm-up', t0, { sources: sources.length });
+      })
+      .catch((error) => {
+        logger.warn('Capture warm-up failed (capture will retry at request time)', { error: error.message });
+      });
   }
 
   listDisplays() {
@@ -68,10 +91,25 @@ class CaptureService {
     const targetDisplay = this._getTargetDisplay(options.displayId);
     const { width, height } = targetDisplay.size || { width: 1920, height: 1080 };
 
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width, height }
+    // Guard against the Linux portal path hanging indefinitely: race getSources
+    // against a hard timeout, and retry once (the retry hits the warm X11 path).
+    const CAPTURE_TIMEOUT_MS = 15000;
+    const attemptCapture = () => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Screen capture timed out after ' + CAPTURE_TIMEOUT_MS / 1000 + 's')),
+        CAPTURE_TIMEOUT_MS);
+      desktopCapturer
+        .getSources({ types: ['screen'], thumbnailSize: { width, height } })
+        .then((sources) => { clearTimeout(timer); resolve(sources); })
+        .catch((error) => { clearTimeout(timer); reject(error); });
     });
+
+    let sources;
+    try {
+      sources = await attemptCapture();
+    } catch (firstError) {
+      logger.warn('Screen capture first attempt failed, retrying', { error: firstError.message });
+      sources = await attemptCapture();
+    }
 
     if (sources.length === 0) {
       throw new Error('No screen sources available for capture');
